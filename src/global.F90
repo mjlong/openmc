@@ -231,7 +231,6 @@ module global
 
   ! Random number seed
   integer(8) :: seed = 1_8
-!$omp threadprivate(seed)
 
   ! The verbosity controls how much information will be printed to the
   ! screen and in logs

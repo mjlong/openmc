@@ -7,6 +7,7 @@ module random_lcg
 
   integer(8) :: prn_seed0  ! original seed
   integer(8) :: prn_seed   ! current seed
+!$omp threadprivate(prn_seed)
   integer(8) :: prn_mult   ! multiplication factor, g
   integer(8) :: prn_add    ! additive factor, c
   integer    :: prn_bits   ! number of bits, M
