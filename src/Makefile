@@ -20,6 +20,7 @@ DEBUG    = no
 PROFILE  = no
 OPTIMIZE = no
 USE_MPI  = no
+USE_OMP  = no
 USE_HDF5 = no
 
 #===============================================================================
@@ -163,6 +164,25 @@ ifeq ($(USE_MPI),yes)
   F90FLAGS += -DMPI
 endif
 
+# Use OpenMP for threading
+
+ifeq ($(USE_OMP),yes)
+  ifeq ($(COMPILER),intel)
+    F90FLAGS += -openmp
+    LDFLAGS += -openmp
+  endif
+
+  ifeq ($(COMPILER),gnu)
+    F90FLAGS += -fopenmp
+    LDFLAGS += -fopenmp
+  endif
+
+  ifeq ($(COMPILER),ibm)
+    F90FLAGS += -qsmp=omp
+    LDFLAGS += -qsmp=omp
+  endif
+endif
+
 # Use HDF5 for output
 
 ifeq ($(USE_HDF5),yes)
@@ -198,8 +218,8 @@ endif
 
 all: xml-fortran $(program)
 xml-fortran:
-	cd xml-fortran; make MACHINE=$(MACHINE) F90=$(F90) F90FLAGS="$(F90FLAGS)"
-	cd xml-fortran/templates; make F90=$(F90) F90FLAGS="$(F90FLAGS)"
+	cd xml-fortran; make MACHINE=$(MACHINE) F90=$(F90) F90FLAGS="$(F90FLAGS)" LDFLAGS="$(LDFLAGS)"
+	cd xml-fortran/templates; make F90=$(F90) F90FLAGS="$(F90FLAGS)" LDFLAGS="$(LDFLAGS)"
 $(program): $(objects)
 	$(F90) $(objects) $(templates) $(xml_fort) -o $@ $(LDFLAGS)
 distclean: clean

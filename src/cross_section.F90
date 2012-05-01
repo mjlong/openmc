@@ -25,7 +25,8 @@ contains
     integer :: index_sab     ! index into sab_tables array
     real(8) :: atom_density  ! atom density of a nuclide
     real(8) :: sab_threshold ! threshold for S(a,b) table
-    type(Material),  pointer :: mat => null() ! current material
+    type(Material),  pointer, save :: mat => null() ! current material
+!$omp threadprivate(mat)
 
     ! Set all material macroscopic cross sections to zero
     material_xs % total      = ZERO
@@ -102,7 +103,8 @@ contains
 
     integer :: IE        ! index on nuclide energy grid
     real(8) :: f         ! interp factor on nuclide energy grid
-    type(Nuclide),   pointer :: nuc => null()
+    type(Nuclide), pointer, save :: nuc => null()
+!$omp threadprivate(nuc)
 
     ! Set pointer to nuclide
     nuc => nuclides(index_nuclide)
@@ -212,7 +214,8 @@ contains
     real(8) :: f         ! interp factor on S(a,b) energy grid
     real(8) :: inelastic ! S(a,b) inelastic cross section
     real(8) :: elastic   ! S(a,b) elastic cross section
-    type(SAB_Table), pointer :: sab => null()
+    type(SAB_Table), pointer, save :: sab => null()
+!$omp threadprivate(sab)
 
     ! Set flag that S(a,b) treatment should be used for scattering
     micro_xs(index_nuclide) % use_sab = .true.
@@ -297,9 +300,12 @@ contains
     real(8) :: capture    ! (n,gamma) cross section
     real(8) :: fission    ! fission cross section
     real(8) :: inelastic  ! inelastic cross section
-    type(UrrData),  pointer :: urr => null()
-    type(Nuclide),  pointer :: nuc => null()
-    type(Reaction), pointer :: rxn => null()
+    type(UrrData),  pointer, save :: urr => null()
+!$omp threadprivate(urr)
+    type(Nuclide),  pointer, save :: nuc => null()
+!$omp threadprivate(nuc)
+    type(Reaction), pointer, save :: rxn => null()
+!$omp threadprivate(rxn)
 
     micro_xs(index_nuclide) % use_ptable = .true.
 

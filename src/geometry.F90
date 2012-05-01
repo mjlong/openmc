@@ -30,7 +30,8 @@ contains
     integer :: i               ! index of surfaces in cell
     integer :: surf_num        ! index in surfaces array (with sign)
     integer :: current_surface ! current surface of particle (with sign)
-    type(Surface), pointer  :: surf => null()
+    type(Surface), pointer, save :: surf => null()
+!$omp threadprivate(surf)
 
     current_surface = p % surface
 
@@ -101,9 +102,12 @@ contains
     integer :: index_cell           ! index in cells array
     real(8) :: xyz(3)               ! temporary location
     logical :: use_search_cells     ! use cells provided as argument
-    type(Cell),     pointer :: c    ! pointer to cell
-    type(Lattice),  pointer :: lat  ! pointer to lattice
-    type(Universe), pointer :: univ ! universe to search in
+    type(Cell),     pointer, save :: c    ! pointer to cell
+!$omp threadprivate(c)
+    type(Lattice),  pointer, save :: lat  ! pointer to lattice
+!$omp threadprivate(lat)
+    type(Universe), pointer, save :: univ ! universe to search in
+!$omp threadprivate(univ)
 
     ! Remove coordinates for any lower levels
     call deallocate_coord(p % coord % next)
@@ -250,7 +254,8 @@ contains
     real(8) :: dot_prod ! dot product of direction and normal
     real(8) :: norm     ! "norm" of surface normal
     logical :: found    ! particle found in universe?
-    type(Surface),  pointer :: surf => null()
+    type(Surface), pointer, save :: surf => null()
+!$omp threadprivate(surf)
 
     surf => surfaces(abs(p % surface))
     if (verbosity >= 10 .or. trace) then
@@ -469,7 +474,8 @@ contains
     real(8) :: x0    ! half the width of lattice element
     real(8) :: y0    ! half the height of lattice element
     logical :: found ! particle found in cell?
-    type(Lattice),  pointer :: lat => null()
+    type(Lattice), pointer, save :: lat => null()
+!$omp threadprivate(lat)
 
     lat => lattices(p % coord % lattice)
 
@@ -574,11 +580,16 @@ contains
     real(8) :: a,b,c,k      ! quadratic equation coefficients
     real(8) :: quad         ! discriminant of quadratic equation
     logical :: on_surface   ! is particle on surface?
-    type(Cell),       pointer :: cl => null()
-    type(Surface),    pointer :: surf => null()
-    type(Lattice),    pointer :: lat => null()
-    type(LocalCoord), pointer :: coord => null()
-    type(LocalCoord), pointer :: final_coord => null()
+    type(Cell),       pointer, save :: cl => null()
+!$omp threadprivate(cl)
+    type(Surface),    pointer, save :: surf => null()
+!$omp threadprivate(surf)
+    type(Lattice),    pointer, save :: lat => null()
+!$omp threadprivate(lat)
+    type(LocalCoord), pointer, save :: coord => null()
+!$omp threadprivate(coord)
+    type(LocalCoord), pointer, save :: final_coord => null()
+!$omp threadprivate(final_coord)
 
     ! inialize distance to infinity (huge)
     dist = INFINITY
@@ -1133,8 +1144,10 @@ contains
     integer, allocatable :: count_positive(:) ! # of cells on positive side
     integer, allocatable :: count_negative(:) ! # of cells on negative side
     logical :: positive   ! positive side specified in surface list
-    type(Cell),    pointer  :: c
-    type(Surface), pointer  :: surf
+    type(Cell), pointer, save  :: c => null()
+!$omp threadprivate(c)
+    type(Surface), pointer, save  :: surf => null()
+!$omp threadprivate(surf)
 
     message = "Building neighboring cells lists for each surface..."
     call write_message(4)

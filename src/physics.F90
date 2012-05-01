@@ -39,7 +39,8 @@ contains
     real(8) :: d_collision     ! sampled distance to collision
     real(8) :: distance        ! distance particle travels
     logical :: found_cell      ! found cell which particle is in?
-    type(LocalCoord), pointer :: coord => null()
+    type(LocalCoord), pointer, save :: coord => null()
+!$omp threadprivate(coord)
 
     if (verbosity >= 9 .or. trace) then
        message = "Simulating Particle " // trim(to_str(p % id))
@@ -240,9 +241,12 @@ contains
     real(8) :: prob          ! cumulative probability
     real(8) :: cutoff        ! random number
     real(8) :: atom_density  ! atom density of nuclide in atom/b-cm
-    type(Material), pointer :: mat => null()
-    type(Nuclide),  pointer :: nuc => null()
-    type(Reaction), pointer :: rxn => null()
+    type(Material), pointer, save :: mat => null()
+!$omp threadprivate(mat)
+    type(Nuclide),  pointer, save :: nuc => null()
+!$omp threadprivate(nuc)
+    type(Reaction), pointer, save :: rxn => null()
+!$omp threadprivate(rxn)
 
     ! Get pointer to current material
     mat => materials(p % material)
@@ -514,7 +518,8 @@ contains
     real(8) :: v       ! y-direction
     real(8) :: w       ! z-direction
     real(8) :: E       ! energy
-    type(Nuclide), pointer :: nuc => null()
+    type(Nuclide), pointer, save :: nuc => null()
+!$omp threadprivate(nuc)
 
     ! get pointer to nuclide
     nuc => nuclides(index_nuclide)
@@ -596,7 +601,8 @@ contains
     real(8) :: mu_i1jk      ! outgoing cosine k for E_in(i+1) and E_out(j)
     real(8) :: prob         ! probability for sampling Bragg edge
     real(8) :: u, v, w      ! directional cosines
-    type(SAB_Table), pointer :: sab => null()
+    type(SAB_Table), pointer, save :: sab => null()
+!$omp threadprivate(sab)
 
     ! Get pointer to S(a,b) table
     sab => sab_tables(index_sab)
@@ -859,8 +865,10 @@ contains
     real(8) :: weight       ! weight adjustment for ufs method
     logical :: actual_event ! did fission actually occur? (no survival biasing)
     logical :: in_mesh      ! source site in ufs mesh?
-    type(Nuclide),    pointer :: nuc
-    type(DistEnergy), pointer :: edist => null()
+    type(Nuclide),    pointer, save :: nuc
+!$omp threadprivate(nuc)
+    type(DistEnergy), pointer, save :: edist => null()
+!$omp threadprivate(edist)
 
     ! Get pointer to nuclide
     nuc => nuclides(index_nuclide)
@@ -930,8 +938,14 @@ contains
     ! Add to analog estimate of keff
     call add_to_score(global_tallies(K_ANALOG), nu/weight * keff)
 
+!$omp critical
     ! Bank source neutrons
-    if (nu == 0 .or. n_bank == 3*work) return
+
+    ! TODO: This will result in a irreproducible answer since the order of
+    ! fission sites is not being preserved
+
+    ! if (nu == 0 .or. n_bank == 3*work) return
+
     do i = int(n_bank,4) + 1, int(min(n_bank + nu, 3*work),4)
        ! Bank source neutrons by copying particle data
        fission_bank(i) % id  = p % id
@@ -1039,6 +1053,7 @@ contains
 
     ! increment number of bank sites
     n_bank = min(n_bank + nu, 3*work)
+!$omp end critical
 
     ! Store total weight banked for analog fission tallies
     p % n_bank   = nu

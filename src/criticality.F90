@@ -28,7 +28,9 @@ contains
     call timer_start(time_inactive)
 
     ! Allocate particle
+!$omp parallel
     allocate(p)
+!$omp end parallel
 
     ! Display column titles
     call print_columns()
@@ -50,6 +52,8 @@ contains
 
           ! ====================================================================
           ! LOOP OVER PARTICLES
+
+!$omp parallel do schedule(static)
           PARTICLE_LOOP: do i = 1, work
 
              ! grab source particle from bank
@@ -59,6 +63,7 @@ contains
              call transport()
 
           end do PARTICLE_LOOP
+!$omp end parallel do
 
           ! Accumulate time for transport
           call timer_stop(time_transport)

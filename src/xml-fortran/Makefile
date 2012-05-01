@@ -22,7 +22,7 @@ endif
 
 all: $(reader)
 $(reader): $(objects)
-	$(F90) $(objects) -o $@
+	$(F90) $(objects) -o $@ $(LDFLAGS)
 clean:
 	@rm -f *.o *.mod $(reader)
 neat:

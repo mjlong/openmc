@@ -18,6 +18,7 @@ module tally
   implicit none
 
   integer, allocatable :: position(:)
+!$omp threadprivate(position)
 
 contains
 
@@ -51,8 +52,10 @@ contains
     allocate(tally_maps(FILTER_SURFACE)  % items(n_surfaces))
 
     ! Allocate and initialize tally map positioning for finding bins
+!$omp parallel
     allocate(position(N_FILTER_TYPES - 3))
     position = 0
+!$omp end parallel
 
     do i = 1, n_tallies
        t => tallies(i)
@@ -249,7 +252,8 @@ contains
     real(8) :: wgt                  ! post-collision particle weight
     real(8) :: mu                   ! cosine of angle of collision
     logical :: found_bin            ! scoring bin found?
-    type(TallyObject), pointer :: t => null()
+    type(TallyObject), pointer, save :: t => null()
+!$omp threadprivate(t)
 
     ! Copy particle's pre- and post-collision weight and angle
     last_wgt = p % last_wgt
@@ -538,7 +542,8 @@ contains
     real(8) :: flux                 ! tracklength estimate of flux
     real(8) :: score                ! actual score (e.g., flux*xs)
     logical :: found_bin            ! scoring bin found?
-    type(TallyObject), pointer :: t => null()
+    type(TallyObject), pointer, save :: t => null()
+!$omp threadprivate(t)
 
     ! Determine track-length estimate of flux
     flux = p % wgt * distance
@@ -648,8 +653,10 @@ contains
     logical :: found_bin            ! was a scoring bin found?
     logical :: start_in_mesh        ! starting coordinates inside mesh?
     logical :: end_in_mesh          ! ending coordinates inside mesh?
-    type(TallyObject),    pointer :: t => null()
-    type(StructuredMesh), pointer :: m => null()
+    type(TallyObject),    pointer, save :: t => null()
+!$omp threadprivate(t)
+    type(StructuredMesh), pointer, save :: m => null()
+!$omp threadprivate(m)
 
     found_bin = .true.
     bins = 1
@@ -864,8 +871,10 @@ contains
     integer :: n        ! number of bins for single filter
     integer :: mesh_bin ! index for mesh bin
     real(8) :: E        ! particle energy
-    type(TallyObject),    pointer :: t => null()
-    type(StructuredMesh), pointer :: m => null()
+    type(TallyObject),    pointer, save :: t => null()
+!$omp threadprivate(t)
+    type(StructuredMesh), pointer, save :: m => null()
+!$omp threadprivate(m)
 
     found_bin = .true.
     t => tallies(index_tally)
@@ -1904,7 +1913,9 @@ contains
     type(TallyScore), intent(inout) :: score
     real(8),          intent(in)    :: val
     
+!$omp atomic
     score % n_events = score % n_events + 1
+!$omp atomic
     score % value    = score % value    + val
     
   end subroutine add_to_score
