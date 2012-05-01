@@ -103,11 +103,9 @@ contains
     real(8) :: xyz(3)               ! temporary location
     logical :: use_search_cells     ! use cells provided as argument
     type(Cell),     pointer, save :: c    ! pointer to cell
-!$omp threadprivate(c)
     type(Lattice),  pointer, save :: lat  ! pointer to lattice
-!$omp threadprivate(lat)
     type(Universe), pointer, save :: univ ! universe to search in
-!$omp threadprivate(univ)
+!$omp threadprivate(c, lat, univ)
 
     ! Remove coordinates for any lower levels
     call deallocate_coord(p % coord % next)
@@ -581,15 +579,11 @@ contains
     real(8) :: quad         ! discriminant of quadratic equation
     logical :: on_surface   ! is particle on surface?
     type(Cell),       pointer, save :: cl => null()
-!$omp threadprivate(cl)
     type(Surface),    pointer, save :: surf => null()
-!$omp threadprivate(surf)
     type(Lattice),    pointer, save :: lat => null()
-!$omp threadprivate(lat)
     type(LocalCoord), pointer, save :: coord => null()
-!$omp threadprivate(coord)
     type(LocalCoord), pointer, save :: final_coord => null()
-!$omp threadprivate(final_coord)
+!$omp threadprivate(cl, surf, lat, coord, final_coord)
 
     ! inialize distance to infinity (huge)
     dist = INFINITY
@@ -1145,9 +1139,8 @@ contains
     integer, allocatable :: count_negative(:) ! # of cells on negative side
     logical :: positive   ! positive side specified in surface list
     type(Cell), pointer, save  :: c => null()
-!$omp threadprivate(c)
     type(Surface), pointer, save  :: surf => null()
-!$omp threadprivate(surf)
+!$omp threadprivate(c, surf)
 
     message = "Building neighboring cells lists for each surface..."
     call write_message(4)

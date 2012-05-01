@@ -301,11 +301,9 @@ contains
     real(8) :: fission    ! fission cross section
     real(8) :: inelastic  ! inelastic cross section
     type(UrrData),  pointer, save :: urr => null()
-!$omp threadprivate(urr)
     type(Nuclide),  pointer, save :: nuc => null()
-!$omp threadprivate(nuc)
     type(Reaction), pointer, save :: rxn => null()
-!$omp threadprivate(rxn)
+!$omp threadprivate(urr, nuc, rxn)
 
     micro_xs(index_nuclide) % use_ptable = .true.
 

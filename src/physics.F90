@@ -242,11 +242,9 @@ contains
     real(8) :: cutoff        ! random number
     real(8) :: atom_density  ! atom density of nuclide in atom/b-cm
     type(Material), pointer, save :: mat => null()
-!$omp threadprivate(mat)
     type(Nuclide),  pointer, save :: nuc => null()
-!$omp threadprivate(nuc)
     type(Reaction), pointer, save :: rxn => null()
-!$omp threadprivate(rxn)
+!$omp threadprivate(mat, nuc, rxn)
 
     ! Get pointer to current material
     mat => materials(p % material)
@@ -866,9 +864,8 @@ contains
     logical :: actual_event ! did fission actually occur? (no survival biasing)
     logical :: in_mesh      ! source site in ufs mesh?
     type(Nuclide),    pointer, save :: nuc
-!$omp threadprivate(nuc)
     type(DistEnergy), pointer, save :: edist => null()
-!$omp threadprivate(edist)
+!$omp threadprivate(nuc, edist)
 
     ! Get pointer to nuclide
     nuc => nuclides(index_nuclide)

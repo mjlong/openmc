@@ -7,7 +7,6 @@ module random_lcg
 
   integer(8) :: prn_seed0  ! original seed
   integer(8) :: prn_seed   ! current seed
-!$omp threadprivate(prn_seed)
   integer(8) :: prn_mult   ! multiplication factor, g
   integer(8) :: prn_add    ! additive factor, c
   integer    :: prn_bits   ! number of bits, M
@@ -15,6 +14,8 @@ module random_lcg
   integer(8) :: prn_mask   ! 2^M - 1
   integer(8) :: prn_stride ! stride between particles
   real(8)    :: prn_norm   ! 2^(-M)
+
+!$omp threadprivate(prn_seed)
 
   public :: prn
   public :: initialize_prng

@@ -654,9 +654,8 @@ contains
     logical :: start_in_mesh        ! starting coordinates inside mesh?
     logical :: end_in_mesh          ! ending coordinates inside mesh?
     type(TallyObject),    pointer, save :: t => null()
-!$omp threadprivate(t)
     type(StructuredMesh), pointer, save :: m => null()
-!$omp threadprivate(m)
+!$omp threadprivate(t, m)
 
     found_bin = .true.
     bins = 1
@@ -872,9 +871,8 @@ contains
     integer :: mesh_bin ! index for mesh bin
     real(8) :: E        ! particle energy
     type(TallyObject),    pointer, save :: t => null()
-!$omp threadprivate(t)
     type(StructuredMesh), pointer, save :: m => null()
-!$omp threadprivate(m)
+!$omp threadprivate(t, m)
 
     found_bin = .true.
     t => tallies(index_tally)

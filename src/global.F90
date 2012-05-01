@@ -29,7 +29,6 @@ module global
   ! THE PARTICLE
 
   type(Particle), pointer :: p => null()
-!$omp threadprivate(p)
 
   ! ============================================================================
   ! GEOMETRY-RELATED VARIABLES
@@ -71,9 +70,7 @@ module global
 
   ! Cross section caches
   type(NuclideMicroXS), allocatable :: micro_xs(:)  ! Cache for each nuclide
-!$omp threadprivate(micro_xs)
   type(MaterialMacroXS)             :: material_xs  ! Cache for current material
-!$omp threadprivate(material_xs)
 
   integer :: n_nuclides_total ! Number of nuclide cross section tables
   integer :: n_sab_tables     ! Number of S(a,b) thermal scattering tables
@@ -227,7 +224,6 @@ module global
 
   ! Message used in message/warning/fatal_error
   character(MAX_LINE_LEN) :: message
-!$omp threadprivate(message)
 
   ! Random number seed
   integer(8) :: seed = 1_8
@@ -238,10 +234,11 @@ module global
 
   ! Trace for single particle
   logical    :: trace
-!$omp threadprivate(trace)
   integer    :: trace_batch
   integer    :: trace_gen
   integer(8) :: trace_particle
+
+!$omp threadprivate(p, micro_xs, material_xs, message, trace)
 
 contains
 
