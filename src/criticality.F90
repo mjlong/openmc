@@ -4,6 +4,9 @@ module criticality
   use global
   use intercycle, only: shannon_entropy, calculate_keff, synchronize_bank, &
                         count_source_for_ufs
+#ifdef OPENMP
+  use intercycle, only: join_bank_from_threads
+#endif
   use output,     only: write_message, header, print_columns
   use physics,    only: transport
   use source,     only: get_source_particle
@@ -70,6 +73,9 @@ contains
 
           ! Distribute fission bank across processors evenly
           call timer_start(time_intercycle)
+#ifdef OPENMP
+          call join_bank_from_threads()
+#endif
           call synchronize_bank()
           call timer_stop(time_intercycle)
           

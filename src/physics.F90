@@ -935,13 +935,9 @@ contains
     ! Add to analog estimate of keff
     call add_to_score(global_tallies(K_ANALOG), nu/weight * keff)
 
-!$omp critical
     ! Bank source neutrons
 
-    ! TODO: This will result in a irreproducible answer since the order of
-    ! fission sites is not being preserved
-
-    ! if (nu == 0 .or. n_bank == 3*work) return
+    if (nu == 0 .or. n_bank == 3*work) return
 
     do i = int(n_bank,4) + 1, int(min(n_bank + nu, 3*work),4)
        ! Bank source neutrons by copying particle data
@@ -1050,7 +1046,6 @@ contains
 
     ! increment number of bank sites
     n_bank = min(n_bank + nu, 3*work)
-!$omp end critical
 
     ! Store total weight banked for analog fission tallies
     p % n_bank   = nu

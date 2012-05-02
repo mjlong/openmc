@@ -508,4 +508,47 @@ contains
 
   end subroutine count_source_for_ufs
 
+!===============================================================================
+! JOIN_BANK_FROM_THREADS combines fission sites from each thread's private bank
+! into one fission bank on the master thread. This has to be done in order to
+! maintain reproducibility
+!===============================================================================
+
+#ifdef OPENMP
+  subroutine join_bank_from_threads()
+
+    integer :: total ! total number of fission bank sites
+    integer :: i     ! loop index for threads
+
+    ! Initialize the total number of fission bank sites
+    total = 0
+
+!$omp parallel
+
+    ! Copy thread fission bank sites to one shared copy
+!$omp do ordered schedule(static)
+    do i = 1, n_threads
+!$omp ordered
+       master_fission_bank(total+1:total+n_bank) = fission_bank(1:n_bank)
+       total = total + n_bank
+!$omp end ordered
+    end do
+!$omp end do
+
+    ! Make sure all threads have made it to this point
+!$omp barrier
+
+    ! Now copy the shared fission bank sites back to the master thread's copy.
+    if (thread_id == 0) then
+       n_bank = total
+       fission_bank(1:n_bank) = master_fission_bank(1:n_bank)
+    else
+       n_bank = 0
+    end if
+
+!$omp end parallel
+
+  end subroutine join_bank_from_threads
+#endif
+
 end module intercycle

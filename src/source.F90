@@ -15,6 +15,10 @@ module source
   use mpi
 #endif
 
+#ifdef OPENMP
+  use omp_lib
+#endif
+
   implicit none
 
 contains
@@ -46,8 +50,28 @@ contains
        call fatal_error()
     end if
 
+
     ! Allocate fission bank
+#ifdef OPENMP
+    ! If OpenMP is being used, each thread needs its own private fission
+    ! bank. Since the private fission banks need to be combined at the end of a
+    ! generation, there is also a 'master_fission_bank' that is used to collect
+    ! the sites from each thread.
+
+!$omp parallel
+    n_threads = omp_get_num_threads()
+    thread_id = omp_get_thread_num()
+
+    if (thread_id == 0) then
+       allocate(fission_bank(3*maxwork))
+    else
+       allocate(fission_bank(3*maxwork/n_threads))
+    end if
+!$omp end parallel
+    allocate(master_fission_bank(3*maxwork), STAT=alloc_err)
+#else
     allocate(fission_bank(3*maxwork), STAT=alloc_err)
+#endif
 
     ! Check for allocation errors 
     if (alloc_err /= 0) then
@@ -166,6 +190,7 @@ contains
          p % id == trace_particle) trace = .true.
 
     ! Add paricle's starting weight to count for normalizing tallies later
+!$omp atomic
     total_weight = total_weight + src % wgt
 
   end subroutine get_source_particle
