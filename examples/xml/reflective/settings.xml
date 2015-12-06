@@ -3,16 +3,18 @@
 
   <!-- Parameters for k-eigenvalue calculation -->
   <eigenvalue>
-    <batches>500</batches>
-    <inactive>10</inactive>
+    <batches>16</batches>
+    <inactive>5</inactive>
     <particles>10000</particles>
   </eigenvalue>
 
   <!-- Starting source -->
   <source>
-    <space type="box">
-      <parameters>-1 -1 -1  1  1  1</parameters>
+    <space type="point">
+      <parameters>256.0 256.0 256.0</parameters>
     </space>
   </source>
 
+
+  <entropy dimension="8 8 8" lower_left="0 0 0" upper_right="400 400 400" />
 </settings>
