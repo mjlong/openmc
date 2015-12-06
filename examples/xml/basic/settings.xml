@@ -15,4 +15,10 @@
     </space>
   </source>
 
+  <!-- entopy   -->
+  <entropy>
+    <lower_left>-8 -8 -10</lower_left>
+    <upper_right>8 8 10  </upper_right>
+  </entropy>
+
 </settings>
