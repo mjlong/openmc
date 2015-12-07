@@ -1,3 +1,5 @@
+# Examples
+examples/xml/
 # Compiled objects and modules
 *.a
 *.o
