@@ -24,6 +24,7 @@ module eigenvalue
   use trigger,      only: check_triggers
   use tracking,     only: transport
 
+  use omp_lib
   implicit none
   private
   public :: run_eigenvalue
@@ -43,7 +44,8 @@ contains
 
     type(Particle) :: p
     integer(8)     :: i_work
-
+    integer(8):: TID  
+    
     if (master) call header("K EIGENVALUE SIMULATION", level=1)
 
     ! Display column titles
@@ -56,8 +58,7 @@ contains
     ! LOOP OVER BATCHES
     BATCH_LOOP: do current_batch = 1, n_max_batches
 
-      call initialize_batch()
-
+      call initialize_batch() !_treats active (inactive outof if())
       ! Handle restart runs
       if (restart_run .and. current_batch <= restart_batch) then
         call replay_batch_history()
@@ -75,12 +76,15 @@ contains
 
         ! ====================================================================
         ! LOOP OVER PARTICLES
-!$omp parallel do schedule(static) firstprivate(p)
+!$omp parallel do schedule(static) firstprivate(p) private(TID)
         PARTICLE_LOOP: do i_work = 1, work
+          TID = OMP_GET_THREAD_NUM()
+          write(*,*)'Hello World from thread = ', TID
+
           current_work = i_work
 
-          ! grab source particle from bank
-          call get_source_particle(p, current_work)
+          ! grab source particle from bank 
+          call get_source_particle(p, current_work) !_bank already setup
 
           ! transport particle
           call transport(p)
@@ -91,7 +95,7 @@ contains
         ! Accumulate time for transport
         call time_transport % stop()
 
-        call finalize_generation()
+        call finalize_generation()  !_ bank treatment
 
       end do GENERATION_LOOP
 
