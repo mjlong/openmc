@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<settings>
+
+  <!-- Parameters for k-eigenvalue calculation -->
+  <eigenvalue>
+    <batches>15</batches>
+    <inactive>5</inactive>
+    <particles>10000</particles>
+  </eigenvalue>
+
+  <!-- Starting source -->
+  <source>
+    <space type="box">
+      <parameters>-4 -4 -4  4  4  4</parameters>
+    </space>
+  </source>
+
+  <!-- entopy   -->
+  <entropy>
+    <lower_left>-8 -8 -10</lower_left>
+    <upper_right>8 8 10  </upper_right>
+  </entropy>
+
+</settings>
