@@ -1,0 +1,10 @@
+# !/bin/sh
+#PBS -m a
+#PBS -M jlmiao@mit.edu
+#PBS -o output
+#PBS -j oe
+#PBS -l nodes=4:ppn=12
+#PBS -l walltime=50:0:0
+cd $PBS_O_WORKDIR
+export OMP_NUM_THREADS=4
+mpiexec -np=3 ~/openmc/build/bin/openmc
