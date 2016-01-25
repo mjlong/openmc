@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<settings>
+
+  <!-- Parameters for k-eigenvalue calculation -->
+  <eigenvalue>
+    <batches>4</batches>
+    <generations_per_batch>1</generations_per_batch>
+    <inactive>2</inactive>
+    <particles>660</particles>
+  </eigenvalue>
+
+  <!-- Starting source -->
+  <source>
+    <space type="point">
+      <parameters>256.0 256.0 256.0</parameters>
+    </space>
+  </source>
+
+
+  <entropy dimension="8 8 8" lower_left="0 0 0" upper_right="400 400 400" />
+  <!--threads>4</threads--> 
+
+  <threads>2</threads> 
+</settings>

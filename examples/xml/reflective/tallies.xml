@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<tallies>
+
+  <tally id="1">
+    <filter type="mesh" bins="1"/>
+    <scores> fission nu-fission</scores>
+  </tally>
+
+  <mesh id="1" type="rectangular" dimension="8 8 8" lower_left="0 0 0" upper_right="400 400 400" />
+  <estimator> analog </estimator>
+
+</tallies>
