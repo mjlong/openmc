@@ -78,9 +78,6 @@ contains
         ! LOOP OVER PARTICLES
 !$omp parallel do schedule(static) firstprivate(p) private(TID)
         PARTICLE_LOOP: do i_work = 1, work
-          TID = OMP_GET_THREAD_NUM()
-          write(*,*)'Hello World from thread = ', TID
-
           current_work = i_work
 
           ! grab source particle from bank 
@@ -454,6 +451,7 @@ contains
       ! Determine the index of the processor which has the first part of the
       ! source_bank for the local processor
       neighbor = binary_search(work_index, n_procs + 1, start) - 1
+      ! D start is between work_index[neighbor] and work_index[neighbor+1]
 
       SEND_SITES: do while (start < finish)
         ! Determine the number of sites to send
