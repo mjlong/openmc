@@ -39,8 +39,8 @@ add_definitions(-DMAX_COORD=${maxcoord})
 # MPI for distributed-memory parallelism / HDF5 for binary output
 #===============================================================================
 
-set(MPI_ENABLED FALSE)
-set(HDF5_ENABLED FALSE)
+set(MPI_ENABLED TRUE)
+set(HDF5_ENABLED TRUE)
 if($ENV{FC} MATCHES "mpi[^/]*$")
   message("-- Detected MPI wrapper: $ENV{FC}")
   add_definitions(-DMPI)
