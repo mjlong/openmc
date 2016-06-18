@@ -2616,6 +2616,36 @@ contains
             allocate(t % filters(j) % int_bins(1))
             t % filters(j) % int_bins(1) = i_mesh
 
+          case ('meshborn')
+            ! Set type of filter
+            t % filters(j) % type = FILTER_MESHBORN
+
+            ! Check to make sure multiple meshes weren't given
+            if (n_words /= 1) then
+              call fatal_error("Can only have one mesh filter specified.")
+            end if
+
+            ! Determine id of mesh
+            call get_node_value(node_filt, "bins", id)
+
+            ! Get pointer to mesh
+            if (mesh_dict % has_key(id)) then
+              i_mesh = mesh_dict % get_key(id)
+              m => meshes(i_mesh)
+            else
+              call fatal_error("Could not find mesh " // trim(to_str(id)) &
+                   &// " specified on tally " // trim(to_str(t % id)))
+            end if
+
+            ! Determine number of bins -- this is assuming that the tally is
+            ! a volume tally and not a surface current tally. If it is a
+            ! surface current tally, the number of bins will get reset later
+            t % filters(j) % n_bins = product(m % dimension)
+
+            ! Allocate and store index of mesh
+            allocate(t % filters(j) % int_bins(1))
+            t % filters(j) % int_bins(1) = i_mesh
+
           case ('energy')
             ! Set type of filter
             t % filters(j) % type = FILTER_ENERGYIN
@@ -3168,6 +3198,20 @@ contains
               call fatal_error("Cannot tally fission rate with an outgoing &
                    &energy filter.")
             end if
+          case ('nu2-fission')
+            t % score_bins(j) = SCORE_NU2_FISSION
+            if (t % find_filter(FILTER_ENERGYOUT) > 0) then
+              ! Set tally estimator to analog
+              t % estimator = ESTIMATOR_ANALOG
+            end if
+
+          case ('nu3-fission')
+            t % score_bins(j) = SCORE_NU3_FISSION
+            if (t % find_filter(FILTER_ENERGYOUT) > 0) then
+              ! Set tally estimator to analog
+              t % estimator = ESTIMATOR_ANALOG
+            end if
+
           case ('nu-fission')
             t % score_bins(j) = SCORE_NU_FISSION
             if (t % find_filter(FILTER_ENERGYOUT) > 0) then
