@@ -72,6 +72,7 @@ contains
 
         ! set birth cell attribute
         if (p % cell_born == NONE) p % cell_born = p % coord(p % n_coord) % cell
+        p % born_xyz = p % coord(1) % xyz
       end if
 
       ! Write particle track.
