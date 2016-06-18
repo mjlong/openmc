@@ -56,6 +56,7 @@ module particle_header
     ! Pre-collision physical data
     real(8)    :: last_xyz(3)   ! previous coordinates
     real(8)    :: last_uvw(3)   ! previous direction coordinates
+    real(8)    :: born_xyz(3)
     real(8)    :: last_wgt      ! pre-collision particle weight
     real(8)    :: last_E        ! pre-collision energy
     real(8)    :: absorb_wgt    ! weight absorbed for survival biasing
