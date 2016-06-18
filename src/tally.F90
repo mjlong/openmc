@@ -420,6 +420,69 @@ contains
           end if
         end if
 
+      case (SCORE_NU2_FISSION)
+        if (t % estimator == ESTIMATOR_ANALOG) then
+          if (survival_biasing) then
+            ! No fission events occur if survival biasing is on -- need to
+            ! calculate fraction of absorptions that would have resulted in
+            ! nu-fission
+            if (micro_xs(p % event_nuclide) % absorption > ZERO) then
+              score = (p % absorb_wgt * micro_xs(p % event_nuclide) % &
+                   nu_fission / micro_xs(p % event_nuclide) % absorption)**2
+            else
+              score = ZERO
+            end if
+          else
+            ! Skip any non-fission events
+            if (.not. p % fission) cycle SCORE_LOOP
+            ! If there is no outgoing energy filter, than we only need to
+            ! score to one bin. For the score to be 'analog', we need to
+            ! score the number of particles that were banked in the fission
+            ! bank. Since this was weighted by 1/keff, we multiply by keff
+            ! to get the proper score.
+            score = (keff * p % wgt_bank)**2
+          end if
+
+        else
+          if (i_nuclide > 0) then
+            score = (micro_xs(i_nuclide) % nu_fission * atom_density * flux)**2
+          else
+            score = (material_xs % nu_fission * flux)**2
+          end if
+        end if
+
+
+      case (SCORE_NU3_FISSION)
+        if (t % estimator == ESTIMATOR_ANALOG) then
+          if (survival_biasing) then
+            ! No fission events occur if survival biasing is on -- need to
+            ! calculate fraction of absorptions that would have resulted in
+            ! nu-fission
+            if (micro_xs(p % event_nuclide) % absorption > ZERO) then
+              score = (p % absorb_wgt * micro_xs(p % event_nuclide) % &
+                   nu_fission / micro_xs(p % event_nuclide) % absorption)**3
+            else
+              score = ZERO
+            end if
+          else
+            ! Skip any non-fission events
+            if (.not. p % fission) cycle SCORE_LOOP
+            ! If there is no outgoing energy filter, than we only need to
+            ! score to one bin. For the score to be 'analog', we need to
+            ! score the number of particles that were banked in the fission
+            ! bank. Since this was weighted by 1/keff, we multiply by keff
+            ! to get the proper score.
+            score = (keff * p % wgt_bank)**3
+          end if
+
+        else
+          if (i_nuclide > 0) then
+            score = (micro_xs(i_nuclide) % nu_fission * atom_density * flux)**3
+          else
+            score = (material_xs % nu_fission * flux)**3
+          end if
+        end if
+
 
       case (SCORE_DELAYED_NU_FISSION)
 
@@ -1730,6 +1793,14 @@ contains
 
         ! Determine if we're in the mesh first
         call get_mesh_bin(m, p % coord(1) % xyz, matching_bins(i))
+
+      case (FILTER_MESHBORN)
+        ! determine mesh bin
+        m => meshes(t % filters(i) % int_bins(1))
+
+        ! Determine if we're in the mesh first
+        call get_mesh_bin(m, p % born_xyz, matching_bins(i))
+
 
       case (FILTER_UNIVERSE)
         ! determine next universe bin
