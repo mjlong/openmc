@@ -3198,6 +3198,12 @@ contains
               call fatal_error("Cannot tally fission rate with an outgoing &
                    &energy filter.")
             end if
+          case ('nu0-fission')
+            t % score_bins(j) = SCORE_NU0_FISSION
+            if (t % find_filter(FILTER_ENERGYOUT) > 0) then
+              ! Set tally estimator to analog
+              t % estimator = ESTIMATOR_ANALOG
+            end if
           case ('nu2-fission')
             t % score_bins(j) = SCORE_NU2_FISSION
             if (t % find_filter(FILTER_ENERGYOUT) > 0) then

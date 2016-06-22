@@ -420,6 +420,32 @@ contains
           end if
         end if
 
+      case (SCORE_NU0_FISSION)
+        if (t % estimator == ESTIMATOR_ANALOG) then
+          if (survival_biasing) then
+            ! No fission events occur if survival biasing is on -- need to
+            ! calculate fraction of absorptions that would have resulted in
+            ! nu-fission
+            if (micro_xs(p % event_nuclide) % absorption > ZERO) then
+              score = 1 
+            else
+              score = ZERO
+            end if
+          else
+            ! Skip any non-fission events
+            if (.not. p % fission) cycle SCORE_LOOP
+            ! If there is no outgoing energy filter, than we only need to
+            ! score to one bin. For the score to be 'analog', we need to
+            ! score the number of particles that were banked in the fission
+            ! bank. Since this was weighted by 1/keff, we multiply by keff
+            ! to get the proper score.
+            score = 1
+          end if
+
+        else
+            score = 1
+        end if
+
       case (SCORE_NU2_FISSION)
         if (t % estimator == ESTIMATOR_ANALOG) then
           if (survival_biasing) then

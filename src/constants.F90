@@ -259,7 +259,7 @@ module constants
        EVENT_ABSORB  =  2
 
   ! Tally score type
-  integer, parameter :: N_SCORE_TYPES = 24
+  integer, parameter :: N_SCORE_TYPES = 25
   integer, parameter :: &
        SCORE_FLUX               = -1,  & ! flux
        SCORE_TOTAL              = -2,  & ! total reaction rate
@@ -274,8 +274,9 @@ module constants
        SCORE_ABSORPTION         = -11, & ! absorption rate
        SCORE_FISSION            = -12, & ! fission rate
        SCORE_NU_FISSION         = -13, & ! neutron production rate
-       SCORE_NU2_FISSION        = -23, & ! neutron production rate
-       SCORE_NU3_FISSION        = -24, & ! neutron production rate
+       SCORE_NU0_FISSION        = -23, & ! neutron production rate
+       SCORE_NU2_FISSION        = -24, & ! neutron production rate
+       SCORE_NU3_FISSION        = -25, & ! neutron production rate
        SCORE_KAPPA_FISSION      = -14, & ! fission energy production rate
        SCORE_CURRENT            = -15, & ! partial current
        SCORE_FLUX_YN            = -16, & ! angular moment of flux
