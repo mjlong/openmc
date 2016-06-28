@@ -7,6 +7,7 @@ module eigenvalue
   use constants,    only: ZERO
   use error,        only: fatal_error, warning
   use global
+  use initialize,   only: calculate_work, allocate_banks
   use math,         only: t_percentile
   use mesh,         only: count_bank_sites
   use mesh_header,  only: RegularMesh
@@ -85,6 +86,7 @@ contains
     total  = n_bank
 #endif
 
+    cur_particles = total * ( 1 - normalize) + n_particles * normalize 
     ! If there are not that many particles per generation, it's possible that no
     ! fission sites were created at all on a single processor. Rather than add
     ! extra logic to treat this circumstance, we really want to ensure the user
@@ -105,10 +107,10 @@ contains
     ! Determine how many fission sites we need to sample from the source bank
     ! and the probability for selecting a site.
 
-    if (total < n_particles) then
-      sites_needed = mod(n_particles,total)
+    if (total < cur_particles) then
+      sites_needed = mod(cur_particles,total)
     else
-      sites_needed = n_particles
+      sites_needed = cur_particles
     end if
     p_sample = real(sites_needed,8)/real(total,8)
 
@@ -127,7 +129,7 @@ contains
       ! int(n_particles/total) sites to temp_sites. For example, if you need
       ! 1000 and 300 were banked, this would add 3 source sites per banked site
       ! and the remaining 100 would be randomly sampled.
-      if (total < n_particles) then
+      if (total < cur_particles) then
         do j = 1, int(n_particles/total)
           index_temp = index_temp + 1
           temp_sites(index_temp) = fission_bank(i)
@@ -135,7 +137,7 @@ contains
       end if
 
       ! Randomly sample sites needed
-      if (prn() < p_sample) then
+      if (prn()*normalize < p_sample) then
         index_temp = index_temp + 1
         temp_sites(index_temp) = fission_bank(i)
       end if
@@ -168,12 +170,12 @@ contains
     ! to adjust only the source sites on the last processor.
 
     if (rank == n_procs - 1) then
-      if (finish > n_particles) then
+      if (finish > cur_particles) then
         ! If we have extra sites sampled, we will simply discard the extra
         ! ones on the last processor
         index_temp = n_particles - start
 
-      elseif (finish < n_particles) then
+      elseif (finish < cur_particles) then
         ! If we have too few sites, repeat sites from the very end of the
         ! fission bank
         sites_needed = n_particles - finish
@@ -188,6 +190,10 @@ contains
     end if
 
     call time_bank_sample % stop()
+    if( 0 == normalize ) then
+       call calculate_work()
+       call allocate_banks()
+    endif
     call time_bank_sendrecv % start()
 
 #ifdef MPI
