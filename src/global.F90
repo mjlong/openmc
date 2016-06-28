@@ -13,7 +13,7 @@ module global
   use set_header,       only: SetInt
   use surface_header,   only: SurfaceContainer
   use source_header,    only: ExtSource
-  use tally_header,     only: TallyObject, TallyMap, TallyResult
+  use tally_header,     only: SourceCount, TallyObject, TallyMap, TallyResult
   use trigger_header,   only: KTrigger
   use timer_header,     only: Timer
 
@@ -97,6 +97,7 @@ module global
 
   type(RegularMesh), allocatable, target :: meshes(:)
   type(TallyObject),    allocatable, target :: tallies(:)
+  type(SourceCount), allocatable, target :: source_counts(:)
   integer, allocatable :: matching_bins(:)
 
   ! Pointers for different tallies
@@ -144,6 +145,7 @@ module global
   integer :: n_user_meshes  = 0 ! # of structured user meshes
   integer :: n_tallies      = 0 ! # of tallies
   integer :: n_user_tallies = 0 ! # of user tallies
+  integer :: n_source_counts= 0 
 
   ! Normalization for statistics
   integer :: n_realizations = 0 ! # of independent realizations
@@ -474,6 +476,7 @@ contains
     if (allocated(global_tallies)) deallocate(global_tallies)
     if (allocated(meshes)) deallocate(meshes)
     if (allocated(tallies)) deallocate(tallies)
+    if (allocated(source_counts)) Deallocate(source_counts)
     if (allocated(matching_bins)) deallocate(matching_bins)
     if (allocated(tally_maps)) deallocate(tally_maps)
 
