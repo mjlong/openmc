@@ -190,7 +190,10 @@ contains
 
       ! If the number of particles was specified as a command-line argument, we
       ! don't set it here
-      if (n_particles == 0) n_particles = temp_long
+      if (n_particles == 0) then
+         n_particles = temp_long
+         cur_particles = n_particles
+      endif
 
       ! Get number of basic batches
       call get_node_value(node_mode, "batches", n_batches)
@@ -284,6 +287,14 @@ contains
     ! Copy random number seed if specified
     if (check_for_node(doc, "seed")) call get_node_value(doc, "seed", seed)
 
+    ! Copy random number seed if specified
+    if (check_for_node(doc, "nu_factor")) then
+       normalize = 0
+       call get_node_value(doc, "nu_factor", nu_factor)
+    endif
+
+    if ( 1 < gen_per_batch .and. 0 == normalize ) &
+         call fatal_error("Generations per batch must be 1 when population normalization is disabled")
     ! Energy grid methods
     if (check_for_node(doc, "energy_grid")) then
       call get_node_value(doc, "energy_grid", temp_str)
