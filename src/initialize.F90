@@ -861,13 +861,13 @@ contains
     integer(8) :: min_work  ! Minimum number of particles on each proc
     integer(8) :: work_i    ! Number of particles on rank i
 
-    allocate(work_index(0:n_procs))
+    if (.not. allocated(work_index)) allocate(work_index(0:n_procs))
 
     ! Determine minimum amount of particles to simulate on each processor
-    min_work = n_particles/n_procs
+    min_work = cur_particles/n_procs
 
     ! Determine number of processors that have one extra particle
-    remainder = int(mod(n_particles, int(n_procs,8)), 4)
+    remainder = int(mod(cur_particles, int(n_procs,8)), 4)
 
     i_bank = 0
     work_index(0) = 0
@@ -896,7 +896,10 @@ contains
   subroutine allocate_banks()
 
     integer :: alloc_err  ! allocation error code
-
+    if (allocated(source_bank))         deallocate(source_bank)
+#ifdef _OPENMP
+    if (allocated(master_fission_bank)) deallocate(master_fission_bank)
+#endif
     ! Allocate source bank
     allocate(source_bank(work), STAT=alloc_err)
 
@@ -915,6 +918,7 @@ contains
       n_threads = omp_get_max_threads()
 
 !$omp parallel
+      if (allocated(fission_bank))        deallocate(fission_bank)
       thread_id = omp_get_thread_num()
 
       if (thread_id == 0) then
@@ -925,6 +929,7 @@ contains
 !$omp end parallel
       allocate(master_fission_bank(3*work), STAT=alloc_err)
 #else
+      if (allocated(fission_bank))        deallocate(fission_bank)
       allocate(fission_bank(3*work), STAT=alloc_err)
 #endif
 
