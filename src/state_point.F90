@@ -51,11 +51,13 @@ contains
     integer(HID_T) :: cmfd_group
     integer(HID_T) :: tallies_group, tally_group
     integer(HID_T) :: meshes_group, mesh_group
+    integer(HID_T) :: source_counts_group, source_count_group
     integer(HID_T) :: filter_group
     character(20), allocatable :: str_array(:)
     character(MAX_FILE_LEN)    :: filename
     type(RegularMesh), pointer :: meshp
     type(TallyObject), pointer    :: tally
+    type(SourceCount), pointer    :: source_count
     type(ElemKeyValueII), pointer :: current
     type(ElemKeyValueII), pointer :: next
 
@@ -142,6 +144,20 @@ contains
 
       tallies_group = create_group(file_id, "tallies")
 
+
+      source_counts_group = create_group(tallies_group, "source_counts")
+      call write_dataset(source_counts_group, "n_source_counts", n_source_counts)
+      do i = 1, n_source_counts
+         source_count => source_counts(i)
+         source_count_group = create_group(source_counts_group, &
+              "source_count "//trim(to_str(source_count%id)))
+         call write_dataset(source_count_group, "bins", source_count%mesh_index)
+         call write_dataset(source_count_group, "results", source_count%results)
+         call close_group(source_count_group)
+      end do
+
+      call close_group(source_counts_group)
+      
       ! Write number of meshes
       meshes_group = create_group(tallies_group, "meshes")
       call write_dataset(meshes_group, "n_meshes", n_meshes)
