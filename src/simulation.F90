@@ -21,7 +21,7 @@ module simulation
   use state_point,  only: write_state_point, write_source_point
   use string,       only: to_str
   use tally,        only: synchronize_tallies, setup_active_usertallies, &
-                          reset_result
+                          reset_result, get_source_bins, reduce_source_count_results
   use trigger,      only: check_triggers
   use tracking,     only: transport
 
@@ -205,6 +205,7 @@ contains
   subroutine initialize_generation()
 
     ! set overall generation number
+    if(1 == current_gen) call get_source_bins()
     overall_gen = gen_per_batch*(current_batch - 1) + current_gen
 
     if (run_mode == MODE_EIGENVALUE) then
@@ -287,6 +288,7 @@ contains
     call synchronize_tallies()
     call time_tallies % stop()
 
+    call reduce_source_count_results()
     ! Reset global tally results
     if (.not. active_batches) then
       call reset_result(global_tallies)
