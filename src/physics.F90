@@ -1112,7 +1112,8 @@ contains
     end if
 
     ! Determine expected number of neutrons produced
-    nu_t = p % wgt / keff * weight * micro_xs(i_nuclide) % nu_fission / &
+    nu_t = p % wgt / ( keff*normalize + nu_factor*(1 - normalize) )* weight * &
+         micro_xs(i_nuclide) % nu_fission / &
          micro_xs(i_nuclide) % total
 
     ! Sample number of neutrons produced
