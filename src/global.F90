@@ -163,6 +163,7 @@ module global
   ! EIGENVALUE SIMULATION VARIABLES
 
   integer(8) :: n_particles = 0   ! # of particles per generation
+  integer(8) :: cur_particles = 0 ! # of particles per generation  
   integer    :: n_batches         ! # of batches
   integer    :: n_inactive        ! # of inactive batches
   integer    :: n_active          ! # of active batches
@@ -203,6 +204,10 @@ module global
   real(8) :: k_col_tra = ZERO ! sum over batches of k_collision * k_tracklength
   real(8) :: k_abs_tra = ZERO ! sum over batches of k_absorption * k_tracklength
   real(8) :: k_combined(2)    ! combined best estimate of k-effective
+
+  ! Nu
+  integer :: normalize = 1 
+  real(8) :: nu_factor = ONE
 
   ! Shannon entropy
   logical :: entropy_on = .false.
