@@ -914,7 +914,7 @@ contains
 
     if (master) then
       ! Create dataset big enough to hold all source sites
-      dims(1) = n_particles
+      dims(1) = cur_particles
       call h5screate_simple_f(1, dims, dspace, hdf5_err)
       call h5dcreate_f(group_id, "source_bank", hdf5_bank_t, &
            dspace, dset, hdf5_err)
