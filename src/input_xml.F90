@@ -2256,16 +2256,19 @@ contains
     type(ElemKeyValueCI), pointer :: pair_list
     type(TallyObject),    pointer :: t
     type(RegularMesh), pointer :: m
+    type(SourceCount), pointer :: sc
     type(TallyFilter), allocatable :: filters(:) ! temporary filters
     type(Node), pointer :: doc => null()
     type(Node), pointer :: node_mesh => null()
     type(Node), pointer :: node_tal => null()
     type(Node), pointer :: node_filt => null()
     type(Node), pointer :: node_trigger=>null()
+    type(Node), pointer :: node_count => null()
     type(NodeList), pointer :: node_mesh_list => null()
     type(NodeList), pointer :: node_tal_list => null()
     type(NodeList), pointer :: node_filt_list => null()
     type(NodeList), pointer :: node_trigger_list => null()
+    type(NodeList), pointer :: node_count_list => null()
     type(ElemKeyValueCI), pointer :: scores
     type(ElemKeyValueCI), pointer :: next
 
@@ -2450,6 +2453,46 @@ contains
 
     ! We only need the mesh info for plotting
     if (run_mode == MODE_PLOTTING) return
+
+    ! ==========================================================================
+    ! READ SOURCECOUNT
+
+    ! Get pointer list to XML <source_count>
+    call get_node_list(doc, "source_count", node_count_list)
+    n_source_counts = get_list_size(node_count_list)
+    if (n_source_counts > 0) allocate(source_counts(n_source_counts))
+
+    do i = 1, n_source_counts
+       sc => source_counts(i)
+       call get_list_item(node_count_list, i, node_count)
+
+       if (check_for_node(node_count, "id")) then
+          call get_node_value(node_count, "id", sc % id)
+       else
+          call fatal_error("Must specify id for source count in tally XML file.")
+       end if
+       
+       temp_str = ''
+       if (check_for_node(node_count, "type")) &
+            call get_node_value(node_count, "type", temp_str)
+       select case (to_lower(temp_str))
+       case ('mesh')
+          call get_node_value(node_count, "bins", id)
+          if (mesh_dict % has_key(id)) then
+             i_mesh = mesh_dict % get_key(id)
+             m => meshes(i_mesh)
+          else
+             call fatal_error("Could not find mesh " // trim(to_str(id)) &
+                  &// " specified on source count " // trim(to_str(sc % id)))
+          end if
+          sc % mesh_index = i_mesh
+          sc % n_bins = product(m % dimension)
+
+       case default
+          call fatal_error("Invalid source count type: " // trim(temp_str))
+       end select
+       
+    end do
 
     ! ==========================================================================
     ! READ TALLY DATA
