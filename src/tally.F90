@@ -409,7 +409,7 @@ contains
             ! score the number of particles that were banked in the fission
             ! bank. Since this was weighted by 1/keff, we multiply by keff
             ! to get the proper score.
-            score = keff * p % wgt_bank
+            score = (keff * normalize + (1- normalize) ) * p % wgt_bank
           end if
 
         else
@@ -466,7 +466,7 @@ contains
             ! score the number of particles that were banked in the fission
             ! bank. Since this was weighted by 1/keff, we multiply by keff
             ! to get the proper score.
-            score = (keff * p % wgt_bank)**2
+            score = ( (keff * normalize + (1- normalize) )  * p % wgt_bank)**2
           end if
 
         else
@@ -498,7 +498,7 @@ contains
             ! score the number of particles that were banked in the fission
             ! bank. Since this was weighted by 1/keff, we multiply by keff
             ! to get the proper score.
-            score = (keff * p % wgt_bank)**3
+            score = ( (keff * normalize + (1- normalize) ) * p % wgt_bank)**3
           end if
 
         else
@@ -2024,6 +2024,7 @@ contains
     integer :: filter_index         ! index of scoring bin
     integer :: i_filter_mesh        ! index of mesh filter in filters array
     integer :: i_filter_surf        ! index of surface filter in filters
+    integer :: i_filter_other
     real(8) :: uvw(3)               ! cosine of angle of particle
     real(8) :: xyz0(3)              ! starting/intermediate coordinates
     real(8) :: xyz1(3)              ! ending coordinates of particle
@@ -2050,6 +2051,25 @@ contains
       ! Get index for mesh and surface filters
       i_filter_mesh = t % find_filter(FILTER_MESH)
       i_filter_surf = t % find_filter(FILTER_SURFACE)
+
+      do i_filter_other = 1, t % n_filters
+         if ( (i_filter_mesh == i_filter_other) .or. &
+              (i_filter_surf == i_filter_other) ) &
+              cycle
+         select case (t % filters(i_filter_other) % type )
+         case (FILTER_MESHBORN)
+            ! determine mesh bin
+            m => meshes(t % filters(i_filter_other) % int_bins(1))
+
+            ! Determine if we're in the mesh first
+            call get_mesh_bin(m, p % born_xyz, matching_bins(i_filter_other))
+            
+         case default
+            matching_bins(i_filter_other) = 1
+            !TODO: not want to repeat get_scoring_bins(), 
+            !      currently MESHBORN is the only 'other' filter 
+         end select
+      end do
 
       ! Determine indices for starting and ending location
       m => meshes(t % filters(i_filter_mesh) % int_bins(1))
