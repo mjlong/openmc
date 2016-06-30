@@ -101,7 +101,7 @@ contains
         call write_dataset(file_id, "run_mode", "k-eigenvalue")
       end select
       call write_dataset(file_id, "n_particles", n_particles)
-      call write_dataset(file_id, "cur_particles", cur_particles)
+      call write_dataset(file_id, "cur_particles", int(total_weight,4))
       call write_dataset(file_id, "n_batches", n_batches)
 
       ! Write out current batch number
