@@ -99,7 +99,7 @@ contains
         call write_dataset(file_id, "run_mode", "k-eigenvalue")
       end select
       call write_dataset(file_id, "n_particles", n_particles)
-      call write_dataset(file_id, "cu_particles", cu_particles)
+      call write_dataset(file_id, "cur_particles", int(total_weight,4))
       call write_dataset(file_id, "n_batches", n_batches)
 
       ! Write out current batch number
@@ -728,7 +728,7 @@ contains
       run_mode = MODE_EIGENVALUE
     end select
     call read_dataset(file_id, "n_particles", n_particles)
-    call read_dataset(file_id, "cu_particles", cu_particles)
+    call read_dataset(file_id, "cur_particles", cur_particles)
     call read_dataset(file_id, "n_batches", int_array(1))
 
     ! Take maximum of statepoint n_batches and input n_batches
@@ -882,7 +882,7 @@ contains
 
 #ifdef PHDF5
     ! Set size of total dataspace for all procs and rank
-    dims(1) = cu_particles
+    dims(1) = cur_particles
     call h5screate_simple_f(1, dims, dspace, hdf5_err)
     call h5dcreate_f(group_id, "source_bank", hdf5_bank_t, dspace, dset, hdf5_err)
 
