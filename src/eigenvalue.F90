@@ -288,7 +288,7 @@ contains
     if (current_batch == n_max_batches .and. current_gen == gen_per_batch) &
          deallocate(bank_position)
 #else
-    source_bank = temp_sites(1:n_particles)
+    source_bank(:) = temp_sites(1:cur_particles)
 #endif
 
     call time_bank_sendrecv % stop()

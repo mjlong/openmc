@@ -2,6 +2,7 @@ module simulation
 
 #ifdef MPI
   use mpi
+  use tally,        only: reduce_source_count_results
 #endif
 
   use cmfd_execute, only: cmfd_init_batch, execute_cmfd
@@ -21,7 +22,7 @@ module simulation
   use state_point,  only: write_state_point, write_source_point
   use string,       only: to_str
   use tally,        only: synchronize_tallies, setup_active_usertallies, &
-                          reset_result, get_source_bins, reduce_source_count_results
+                          reset_result, get_source_bins 
   use trigger,      only: check_triggers
   use tracking,     only: transport
 
@@ -288,7 +289,9 @@ contains
     call synchronize_tallies()
     call time_tallies % stop()
 
+#ifdef MPI
     call reduce_source_count_results()
+#endif
     ! Reset global tally results
     if (.not. active_batches) then
       call reset_result(global_tallies)
