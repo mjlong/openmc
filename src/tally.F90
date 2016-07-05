@@ -329,20 +329,20 @@ contains
           if (survival_biasing) then
             ! No absorption events actually occur if survival biasing is on --
             ! just use weight absorbed in survival biasing
-            score = p % absorb_wgt
+            score = p % absorb_wgt *( 1 -  firstParticleOnly * ( 1 - p % notSecondary ) )
           else
             ! Skip any event where the particle wasn't absorbed
             if (p % event == EVENT_SCATTER) cycle SCORE_LOOP
             ! All fission and absorption events will contribute here, so we
             ! can just use the particle's weight entering the collision
-            score = p % last_wgt
+            score = p % last_wgt *( 1 -  firstParticleOnly * ( 1 - p % notSecondary ) )
           end if
 
         else
           if (i_nuclide > 0) then
-            score = micro_xs(i_nuclide) % absorption * atom_density * flux
+            score = micro_xs(i_nuclide) % absorption * atom_density * flux *( 1 -  firstParticleOnly * ( 1 - p % notSecondary ) )
           else
-            score = material_xs % absorption * flux
+            score = material_xs % absorption * flux *( 1 -  firstParticleOnly * ( 1 - p % notSecondary ) )
           end if
         end if
 
@@ -397,7 +397,8 @@ contains
             ! nu-fission
             if (micro_xs(p % event_nuclide) % absorption > ZERO) then
               score = p % absorb_wgt * micro_xs(p % event_nuclide) % &
-                   nu_fission / micro_xs(p % event_nuclide) % absorption
+                   nu_fission / micro_xs(p % event_nuclide) % absorption * & 
+                  ( 1 -  firstParticleOnly * ( 1 - p % notSecondary ) )
             else
               score = ZERO
             end if
@@ -409,14 +410,14 @@ contains
             ! score the number of particles that were banked in the fission
             ! bank. Since this was weighted by 1/keff, we multiply by keff
             ! to get the proper score.
-            score = (keff * normalize + (1- normalize) ) * p % wgt_bank
+            score = (keff * normalize + (1- normalize) ) * p % wgt_bank *( 1 -  firstParticleOnly * ( 1 - p % notSecondary ) )
           end if
 
         else
           if (i_nuclide > 0) then
-            score = micro_xs(i_nuclide) % nu_fission * atom_density * flux
+            score = micro_xs(i_nuclide) % nu_fission * atom_density * flux*( 1 -  firstParticleOnly * ( 1 - p % notSecondary ) )
           else
-            score = material_xs % nu_fission * flux
+            score = material_xs % nu_fission * flux *( 1 -  firstParticleOnly * ( 1 - p % notSecondary ) )
           end if
         end if
 
@@ -454,7 +455,8 @@ contains
             ! nu-fission
             if (micro_xs(p % event_nuclide) % absorption > ZERO) then
               score = (p % absorb_wgt * micro_xs(p % event_nuclide) % &
-                   nu_fission / micro_xs(p % event_nuclide) % absorption)**2
+                   nu_fission / micro_xs(p % event_nuclide) % absorption)**2 &
+                   *( 1 -  firstParticleOnly * ( 1 - p % notSecondary ) )
             else
               score = ZERO
             end if
@@ -466,14 +468,17 @@ contains
             ! score the number of particles that were banked in the fission
             ! bank. Since this was weighted by 1/keff, we multiply by keff
             ! to get the proper score.
-            score = ( (keff * normalize + (1- normalize) )  * p % wgt_bank)**2
+            score = ( (keff * normalize + (1- normalize) )  * p % wgt_bank)**2 &
+            *( 1 -  firstParticleOnly * ( 1 - p % notSecondary ) )
           end if
 
         else
           if (i_nuclide > 0) then
-            score = (micro_xs(i_nuclide) % nu_fission * atom_density * flux)**2
+            score = (micro_xs(i_nuclide) % nu_fission * atom_density * flux)**2&
+            *( 1 -  firstParticleOnly * ( 1 - p % notSecondary ) )
           else
-            score = (material_xs % nu_fission * flux)**2
+            score = (material_xs % nu_fission * flux)**2 &
+            *( 1 -  firstParticleOnly * ( 1 - p % notSecondary ) )
           end if
         end if
 
@@ -2159,7 +2164,7 @@ contains
               filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
 !$omp atomic
               t % results(1, filter_index) % value = &
-                   t % results(1, filter_index) % value + p % wgt
+                   t % results(1, filter_index) % value + p % wgt *( 1 -  firstParticleOnly * ( 1 - p % notSecondary ) ) 
             end if
           end do
         else
@@ -2172,7 +2177,7 @@ contains
               filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
 !$omp atomic
               t % results(1, filter_index) % value = &
-                   t % results(1, filter_index) % value + p % wgt
+                   t % results(1, filter_index) % value + p % wgt *( 1 -  firstParticleOnly * ( 1 - p % notSecondary ) )
             end if
           end do
         end if
@@ -2189,7 +2194,7 @@ contains
               filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
 !$omp atomic
               t % results(1, filter_index) % value = &
-                   t % results(1, filter_index) % value + p % wgt
+                   t % results(1, filter_index) % value + p % wgt *( 1 -  firstParticleOnly * ( 1 - p % notSecondary ) )
             end if
           end do
         else
@@ -2202,7 +2207,7 @@ contains
               filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
 !$omp atomic
               t % results(1, filter_index) % value = &
-                   t % results(1, filter_index) % value + p % wgt
+                   t % results(1, filter_index) % value + p % wgt *( 1 -  firstParticleOnly * ( 1 - p % notSecondary ) )
             end if
           end do
         end if
@@ -2219,7 +2224,7 @@ contains
               filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
 !$omp atomic
               t % results(1, filter_index) % value = &
-                   t % results(1, filter_index) % value + p % wgt
+                   t % results(1, filter_index) % value + p % wgt *( 1 -  firstParticleOnly * ( 1 - p % notSecondary ) )
             end if
           end do
         else
@@ -2232,7 +2237,7 @@ contains
               filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
 !$omp atomic
               t % results(1, filter_index) % value = &
-                   t % results(1, filter_index) % value + p % wgt
+                   t % results(1, filter_index) % value + p % wgt *( 1 -  firstParticleOnly * ( 1 - p % notSecondary ) )
             end if
           end do
         end if
@@ -2356,7 +2361,7 @@ contains
           ! Add to surface current tally
 !$omp atomic
           t % results(1, filter_index) % value = &
-               t % results(1, filter_index) % value + p % wgt
+               t % results(1, filter_index) % value + p % wgt *( 1 -  firstParticleOnly * ( 1 - p % notSecondary ) )
         end if
 
         ! Calculate new coordinates

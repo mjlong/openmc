@@ -210,6 +210,8 @@ module global
   ! Nu
   integer :: normalize = 1 
   real(8) :: nu_factor = ONE
+  integer :: firstParticleOnly = 0 
+  !Only works for nu_fission, nu2_fission, absorption, current
 
   ! Shannon entropy
   logical :: entropy_on = .false.

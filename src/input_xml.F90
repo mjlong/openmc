@@ -293,6 +293,11 @@ contains
        call get_node_value(doc, "nu_factor", nu_factor)
     endif
 
+    if (check_for_node(doc, "firstParticleOnly")) then
+       call get_node_value(doc, "firstParticleOnly", firstParticleOnly)
+    endif
+
+
     if ( 1 < gen_per_batch .and. 0 == normalize ) &
          call fatal_error("Generations per batch must be 1 when population normalization is disabled")
     ! Energy grid methods
