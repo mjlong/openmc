@@ -203,6 +203,7 @@ contains
         if (p % n_secondary > 0) then
           call p % initialize_from_source(p % secondary_bank(p % n_secondary))
           p % n_secondary = p % n_secondary - 1
+          p % notSecondary = 0
 
           ! Enter new particle in particle track file
           if (p % write_track) call add_particle_track()

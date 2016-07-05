@@ -132,6 +132,7 @@ contains
 
     ! set defaults
     call p % initialize_from_source(source_bank(index_source))
+    p % notSecondary = 1
 
     ! set identifier for particle
     p % id = work_index(rank) + index_source
