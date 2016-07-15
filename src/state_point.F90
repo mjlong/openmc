@@ -354,6 +354,12 @@ contains
               str_array(j) = "fission"
             case (SCORE_NU_FISSION)
               str_array(j) = "nu-fission"
+            case (SCORE_NU0_FISSION)
+              str_array(j) = "nu0-fission"
+            case (SCORE_NU2_FISSION)
+              str_array(j) = "nu2-fission"
+            case (SCORE_NU3_FISSION)
+              str_array(j) = "nu3-fission"
             case (SCORE_DELAYED_NU_FISSION)
               str_array(j) = "delayed-nu-fission"
             case (SCORE_KAPPA_FISSION)
