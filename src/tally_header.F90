@@ -1,6 +1,7 @@
 module tally_header
 
-  use constants,          only: NONE, N_FILTER_TYPES
+  use constants,          only: NONE, N_FILTER_TYPES, FLAG_FIRSTSECOND, &
+                                FLAG_FIRSTONLY, FLAG_SECONDONLY
   use trigger_header,     only: TriggerObject
   use, intrinsic :: ISO_C_BINDING
 
@@ -80,6 +81,7 @@ module tally_header
     integer :: id                   ! user-defined identifier
     character(len=104) :: name = "" ! user-defined name
     integer :: type                 ! volume, surface current
+    integer :: first_second = FLAG_FIRSTSECOND
     integer :: estimator            ! collision, track-length
     real(8) :: volume               ! volume of region
 
