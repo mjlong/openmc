@@ -293,11 +293,6 @@ contains
        call get_node_value(doc, "nu_factor", nu_factor)
     endif
 
-    if (check_for_node(doc, "firstParticleOnly")) then
-       call get_node_value(doc, "firstParticleOnly", firstParticleOnly)
-    endif
-
-
     if ( 1 < gen_per_batch .and. 0 == normalize ) &
          call fatal_error("Generations per batch must be 1 when population normalization is disabled")
     ! Energy grid methods
@@ -3251,6 +3246,27 @@ contains
               call fatal_error("Cannot tally absorption rate with an outgoing &
                    &energy filter.")
             end if
+
+          case ('nu0-nxn')
+            t % score_bins(j) = SCORE_NU0_NXN
+            if (t % find_filter(FILTER_ENERGYOUT) > 0) then
+              ! Set tally estimator to analog
+              t % estimator = ESTIMATOR_ANALOG
+            end if
+          case ('nu1-nxn')
+            t % score_bins(j) = SCORE_NU1_NXN
+            if (t % find_filter(FILTER_ENERGYOUT) > 0) then
+              ! Set tally estimator to analog
+              t % estimator = ESTIMATOR_ANALOG
+            end if
+          case ('nu2-nxn')
+            t % score_bins(j) = SCORE_NU2_NXN
+            if (t % find_filter(FILTER_ENERGYOUT) > 0) then
+              ! Set tally estimator to analog
+              t % estimator = ESTIMATOR_ANALOG
+            end if
+
+
           case ('fission')
             t % score_bins(j) = SCORE_FISSION
             if (t % find_filter(FILTER_ENERGYOUT) > 0) then
@@ -3633,6 +3649,14 @@ contains
         ! Deallocate dictionary of scores/indices used to populate triggers
         call trigger_scores % clear()
       end if
+
+      ! =======================================================================
+      ! SET IF TALLY COUNTS FIRST/SECOND PARTICLES ONLY
+      if (check_for_node(node_tal, "first_second")) then
+        temp_str = ''
+        call get_node_value(node_tal, "first_second", t % first_second)
+      end if 
+          
 
       ! =======================================================================
       ! SET TALLY ESTIMATOR
