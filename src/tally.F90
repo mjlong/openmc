@@ -67,7 +67,9 @@ contains
     real(8) :: uvw(3)               ! particle direction
     real(8) :: E                    ! particle energy
 
-    integer :: correction = 1
+    integer :: correction
+
+    correction = 1
     if( 1 == ( t % first_second - p % notSecondary ) ) correction = 0
 
     i = 0
@@ -2140,7 +2142,7 @@ contains
     logical :: z_same               ! same starting/ending z index (k)
     type(TallyObject), pointer :: t
     type(RegularMesh), pointer :: m
-    integer :: correction = 1
+    integer :: correction 
 
     TALLY_LOOP: do i = 1, active_current_tallies % size()
       ! Copy starting and ending location of particle
