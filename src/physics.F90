@@ -1382,6 +1382,7 @@ contains
 
     ! change weight of particle based on yield
     if (rxn % multiplicity_with_E) then
+      write(*,*) 'warning: creating (n,xn) neutrons unanalogly'
       yield = interpolate_tab1(rxn % multiplicity_E, E_in)
       p % wgt = yield * p % wgt
     else
