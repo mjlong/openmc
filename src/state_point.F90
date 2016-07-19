@@ -352,6 +352,15 @@ contains
               str_array(j) = "absorption"
             case (SCORE_FISSION)
               str_array(j) = "fission"
+
+
+            case (SCORE_NU0_NXN)
+              str_array(j) = "nu0-nxn"
+            case (SCORE_NU1_NXN)
+              str_array(j) = "nu1-nxn"
+            case (SCORE_NU2_NXN)
+              str_array(j) = "nu2-nxn"
+ 
             case (SCORE_NU_FISSION)
               str_array(j) = "nu-fission"
             case (SCORE_NU0_FISSION)
