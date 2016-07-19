@@ -161,6 +161,9 @@ module global
   ! Use confidence intervals for results instead of standard deviations
   logical :: confidence_intervals = .false.
 
+  logical :: nxn_justnow          = .false.
+!$omp threadprivate(nxn_justnow)
+
   ! ============================================================================
   ! EIGENVALUE SIMULATION VARIABLES
 

@@ -1386,6 +1386,9 @@ contains
       yield = interpolate_tab1(rxn % multiplicity_E, E_in)
       p % wgt = yield * p % wgt
     else
+      if(rxn % multiplicity >= 2) then 
+         nxn_justnow = .true. 
+      end if
       do i = 1, rxn % multiplicity - 1
         call p % create_secondary(p % coord(1) % uvw, NEUTRON)
       end do
