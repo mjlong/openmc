@@ -217,7 +217,23 @@ contains
           ! of one.
           score = 0
         else
-          score = 1
+          m = nuclides(p%event_nuclide)%reaction_index% &
+               get_key(p % event_MT)
+
+          ! Get multiplicity and apply to score
+          associate (rxn => nuclides(p%event_nuclide)%reactions(m))
+            if (rxn % multiplicity_with_E) then
+              ! Then the multiplicity was already incorporated in to p % wgt
+              ! per the scattering routine,
+              score = 1
+            else
+              ! Grab the multiplicity from the rxn
+              score = 1
+              if(1 == rxn % multiplicity) then
+                 score = 0 
+              end if
+            end if
+          end associate
         end if
 
       case (SCORE_NU2_NXN)
@@ -242,6 +258,7 @@ contains
             else
               ! Grab the multiplicity from the rxn
               score = ( p % last_wgt * rxn % multiplicity ) ** 2
+              if(1 == rxn % multiplicity) score = 0 
             end if
           end associate
         end if
@@ -269,6 +286,7 @@ contains
             else
               ! Grab the multiplicity from the rxn
               score = p % last_wgt * rxn % multiplicity
+              if(1 == rxn % multiplicity) score = 0 
             end if
           end associate
         end if
@@ -398,20 +416,20 @@ contains
           if (survival_biasing) then
             ! No absorption events actually occur if survival biasing is on --
             ! just use weight absorbed in survival biasing
-            score = p % absorb_wgt * correction
+            score = p % absorb_wgt 
           else
             ! Skip any event where the particle wasn't absorbed
             if (p % event == EVENT_SCATTER) cycle SCORE_LOOP
             ! All fission and absorption events will contribute here, so we
             ! can just use the particle's weight entering the collision
-            score = p % last_wgt * correction
+            score = p % last_wgt 
           end if
 
         else
           if (i_nuclide > 0) then
-            score = micro_xs(i_nuclide) % absorption * atom_density * flux * correction
+            score = micro_xs(i_nuclide) % absorption * atom_density * flux 
           else
-            score = material_xs % absorption * flux * correction
+            score = material_xs % absorption * flux 
           end if
         end if
 
@@ -466,8 +484,7 @@ contains
             ! nu-fission
             if (micro_xs(p % event_nuclide) % absorption > ZERO) then
               score = p % absorb_wgt * micro_xs(p % event_nuclide) % &
-                   nu_fission / micro_xs(p % event_nuclide) % absorption * &
-                   correction
+                   nu_fission / micro_xs(p % event_nuclide) % absorption 
             else
               score = ZERO
             end if
@@ -479,14 +496,14 @@ contains
             ! score the number of particles that were banked in the fission
             ! bank. Since this was weighted by 1/keff, we multiply by keff
             ! to get the proper score.
-            score = (keff * normalize + (1- normalize) ) * p % wgt_bank * correction
+            score = (keff * normalize + (1- normalize) ) * p % wgt_bank 
           end if
 
         else
           if (i_nuclide > 0) then
-            score = micro_xs(i_nuclide) % nu_fission * atom_density * flux* correction
+            score = micro_xs(i_nuclide) % nu_fission * atom_density * flux
           else
-            score = material_xs % nu_fission * flux * correction
+            score = material_xs % nu_fission * flux 
           end if
         end if
 
@@ -524,8 +541,7 @@ contains
             ! nu-fission
             if (micro_xs(p % event_nuclide) % absorption > ZERO) then
               score = (p % absorb_wgt * micro_xs(p % event_nuclide) % &
-                   nu_fission / micro_xs(p % event_nuclide) % absorption)**2 &
-                   * correction
+                   nu_fission / micro_xs(p % event_nuclide) % absorption)**2 
             else
               score = ZERO
             end if
@@ -537,17 +553,14 @@ contains
             ! score the number of particles that were banked in the fission
             ! bank. Since this was weighted by 1/keff, we multiply by keff
             ! to get the proper score.
-            score = ( (keff * normalize + (1- normalize) )  * p % wgt_bank)**2 &
-            * correction
+            score = ( (keff * normalize + (1- normalize) )  * p % wgt_bank)**2 
           end if
 
         else
           if (i_nuclide > 0) then
-            score = (micro_xs(i_nuclide) % nu_fission * atom_density * flux)**2&
-            * correction
+            score = (micro_xs(i_nuclide) % nu_fission * atom_density * flux)**2
           else
-            score = (material_xs % nu_fission * flux)**2 &
-            * correction
+            score = (material_xs % nu_fission * flux)**2 
           end if
         end if
 
@@ -922,7 +935,7 @@ contains
         endif
 !$omp atomic
         t % results(score_index, filter_index) % value = &
-             t % results(score_index, filter_index) % value + score
+             t % results(score_index, filter_index) % value + score * correction
 
 
       case(SCORE_SCATTER_YN, SCORE_NU_SCATTER_YN)
@@ -942,7 +955,7 @@ contains
                % value = t &
                % results(score_index: score_index + num_nm - 1, filter_index)&
                % value &
-               + score * calc_pn(n, p % mu) * calc_rn(n, p % last_uvw)
+               + score * correction * calc_pn(n, p % mu) * calc_rn(n, p % last_uvw)
 !$omp end critical (score_general_scatt_yn)
         end do
         i = i + (t % moment_order(i) + 1)**2 - 1
@@ -971,7 +984,7 @@ contains
                % value = t &
                % results(score_index: score_index + num_nm - 1, filter_index)&
                % value &
-               + score * calc_rn(n, uvw)
+               + score * correction * calc_rn(n, uvw)
 !$omp end critical (score_general_flux_tot_yn)
         end do
         i = i + (t % moment_order(i) + 1)**2 - 1
@@ -989,7 +1002,7 @@ contains
 !$omp atomic
           t % results(score_index, filter_index) % value = &
                t % results(score_index, filter_index) % value &
-               + score * calc_pn(n, p % mu)
+               + score * correction * calc_pn(n, p % mu)
         end do
         i = i + t % moment_order(i)
 
@@ -997,7 +1010,7 @@ contains
       case default
 !$omp atomic
         t % results(score_index, filter_index) % value = &
-             t % results(score_index, filter_index) % value + score
+             t % results(score_index, filter_index) % value + score * correction
 
 
       end select
