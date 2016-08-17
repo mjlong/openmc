@@ -67,10 +67,15 @@ contains
     real(8) :: uvw(3)               ! particle direction
     real(8) :: E                    ! particle energy
 
+    integer :: correction
+
+    correction = 1
+    if( 1 == ( t % first_second - p % notSecondary ) ) correction = 0
+
     i = 0
     SCORE_LOOP: do q = 1, t % n_user_score_bins
       i = i + 1
-
+      
       ! determine what type of score bin
       score_bin = t % score_bins(i)
 
@@ -177,7 +182,6 @@ contains
           end if
         end if
 
-
       case (SCORE_SCATTER_PN)
         ! Only analog estimators are available.
         ! Skip any event where the particle didn't scatter
@@ -203,6 +207,89 @@ contains
         ! reaction rate
         score = p % last_wgt
 
+      case (SCORE_NU0_NXN)
+        ! Only analog estimators are available.
+        ! Skip any event where the particle didn't scatter
+        if (p % event /= EVENT_SCATTER) cycle SCORE_LOOP
+        if (p % event_MT == ELASTIC .or. p % event_MT == N_LEVEL .or. &
+             (p % event_MT >= N_N1 .and. p % event_MT <= N_NC)) then
+          ! Don't waste time on very common reactions we know have multiplicities
+          ! of one.
+          score = 0
+        else
+          m = nuclides(p%event_nuclide)%reaction_index% &
+               get_key(p % event_MT)
+
+          ! Get multiplicity and apply to score
+          associate (rxn => nuclides(p%event_nuclide)%reactions(m))
+            if (rxn % multiplicity_with_E) then
+              ! Then the multiplicity was already incorporated in to p % wgt
+              ! per the scattering routine,
+              score = 1
+            else
+              ! Grab the multiplicity from the rxn
+              score = 1
+              if(1 == rxn % multiplicity) then
+                 score = 0 
+              end if
+            end if
+          end associate
+        end if
+
+      case (SCORE_NU2_NXN)
+        ! Only analog estimators are available.
+        ! Skip any event where the particle didn't scatter
+        if (p % event /= EVENT_SCATTER) cycle SCORE_LOOP
+        if (p % event_MT == ELASTIC .or. p % event_MT == N_LEVEL .or. &
+             (p % event_MT >= N_N1 .and. p % event_MT <= N_NC)) then
+          ! Don't waste time on very common reactions we know have multiplicities
+          ! of one.
+          score = 0
+        else
+          m = nuclides(p%event_nuclide)%reaction_index% &
+               get_key(p % event_MT)
+
+          ! Get multiplicity and apply to score
+          associate (rxn => nuclides(p%event_nuclide)%reactions(m))
+            if (rxn % multiplicity_with_E) then
+              ! Then the multiplicity was already incorporated in to p % wgt
+              ! per the scattering routine,
+              score = ( p % wgt ) ** 2
+            else
+              ! Grab the multiplicity from the rxn
+              score = ( p % last_wgt * rxn % multiplicity ) ** 2
+              if(1 == rxn % multiplicity) score = 0 
+            end if
+          end associate
+        end if
+
+
+      case (SCORE_NU1_NXN)
+        ! Only analog estimators are available.
+        ! Skip any event where the particle didn't scatter
+        if (p % event /= EVENT_SCATTER) cycle SCORE_LOOP
+        if (p % event_MT == ELASTIC .or. p % event_MT == N_LEVEL .or. &
+             (p % event_MT >= N_N1 .and. p % event_MT <= N_NC)) then
+          ! Don't waste time on very common reactions we know have multiplicities
+          ! of one.
+          score = 0
+        else
+          m = nuclides(p%event_nuclide)%reaction_index% &
+               get_key(p % event_MT)
+
+          ! Get multiplicity and apply to score
+          associate (rxn => nuclides(p%event_nuclide)%reactions(m))
+            if (rxn % multiplicity_with_E) then
+              ! Then the multiplicity was already incorporated in to p % wgt
+              ! per the scattering routine,
+              score = p % wgt
+            else
+              ! Grab the multiplicity from the rxn
+              score = p % last_wgt * rxn % multiplicity
+              if(1 == rxn % multiplicity) score = 0 
+            end if
+          end associate
+        end if
 
       case (SCORE_NU_SCATTER, SCORE_NU_SCATTER_N)
         ! Only analog estimators are available.
@@ -329,20 +416,20 @@ contains
           if (survival_biasing) then
             ! No absorption events actually occur if survival biasing is on --
             ! just use weight absorbed in survival biasing
-            score = p % absorb_wgt
+            score = p % absorb_wgt 
           else
             ! Skip any event where the particle wasn't absorbed
             if (p % event == EVENT_SCATTER) cycle SCORE_LOOP
             ! All fission and absorption events will contribute here, so we
             ! can just use the particle's weight entering the collision
-            score = p % last_wgt
+            score = p % last_wgt 
           end if
 
         else
           if (i_nuclide > 0) then
-            score = micro_xs(i_nuclide) % absorption * atom_density * flux
+            score = micro_xs(i_nuclide) % absorption * atom_density * flux 
           else
-            score = material_xs % absorption * flux
+            score = material_xs % absorption * flux 
           end if
         end if
 
@@ -397,7 +484,7 @@ contains
             ! nu-fission
             if (micro_xs(p % event_nuclide) % absorption > ZERO) then
               score = p % absorb_wgt * micro_xs(p % event_nuclide) % &
-                   nu_fission / micro_xs(p % event_nuclide) % absorption
+                   nu_fission / micro_xs(p % event_nuclide) % absorption 
             else
               score = ZERO
             end if
@@ -409,14 +496,103 @@ contains
             ! score the number of particles that were banked in the fission
             ! bank. Since this was weighted by 1/keff, we multiply by keff
             ! to get the proper score.
-            score = keff * p % wgt_bank
+            score = (keff * normalize + (1- normalize) ) * p % wgt_bank 
           end if
 
         else
           if (i_nuclide > 0) then
             score = micro_xs(i_nuclide) % nu_fission * atom_density * flux
           else
-            score = material_xs % nu_fission * flux
+            score = material_xs % nu_fission * flux 
+          end if
+        end if
+
+      case (SCORE_NU0_FISSION)
+        if (t % estimator == ESTIMATOR_ANALOG) then
+          if (survival_biasing) then
+            ! No fission events occur if survival biasing is on -- need to
+            ! calculate fraction of absorptions that would have resulted in
+            ! nu-fission
+            if (micro_xs(p % event_nuclide) % absorption > ZERO) then
+              score = 1 
+            else
+              score = ZERO
+            end if
+          else
+            ! Skip any non-fission events
+            if (.not. p % fission) cycle SCORE_LOOP
+            ! If there is no outgoing energy filter, than we only need to
+            ! score to one bin. For the score to be 'analog', we need to
+            ! score the number of particles that were banked in the fission
+            ! bank. Since this was weighted by 1/keff, we multiply by keff
+            ! to get the proper score.
+            score = 1
+          end if
+
+        else
+            score = 1
+        end if
+
+      case (SCORE_NU2_FISSION)
+        if (t % estimator == ESTIMATOR_ANALOG) then
+          if (survival_biasing) then
+            ! No fission events occur if survival biasing is on -- need to
+            ! calculate fraction of absorptions that would have resulted in
+            ! nu-fission
+            if (micro_xs(p % event_nuclide) % absorption > ZERO) then
+              score = (p % absorb_wgt * micro_xs(p % event_nuclide) % &
+                   nu_fission / micro_xs(p % event_nuclide) % absorption)**2 
+            else
+              score = ZERO
+            end if
+          else
+            ! Skip any non-fission events
+            if (.not. p % fission) cycle SCORE_LOOP
+            ! If there is no outgoing energy filter, than we only need to
+            ! score to one bin. For the score to be 'analog', we need to
+            ! score the number of particles that were banked in the fission
+            ! bank. Since this was weighted by 1/keff, we multiply by keff
+            ! to get the proper score.
+            score = ( (keff * normalize + (1- normalize) )  * p % wgt_bank)**2 
+          end if
+
+        else
+          if (i_nuclide > 0) then
+            score = (micro_xs(i_nuclide) % nu_fission * atom_density * flux)**2
+          else
+            score = (material_xs % nu_fission * flux)**2 
+          end if
+        end if
+
+
+      case (SCORE_NU3_FISSION)
+        if (t % estimator == ESTIMATOR_ANALOG) then
+          if (survival_biasing) then
+            ! No fission events occur if survival biasing is on -- need to
+            ! calculate fraction of absorptions that would have resulted in
+            ! nu-fission
+            if (micro_xs(p % event_nuclide) % absorption > ZERO) then
+              score = (p % absorb_wgt * micro_xs(p % event_nuclide) % &
+                   nu_fission / micro_xs(p % event_nuclide) % absorption)**3
+            else
+              score = ZERO
+            end if
+          else
+            ! Skip any non-fission events
+            if (.not. p % fission) cycle SCORE_LOOP
+            ! If there is no outgoing energy filter, than we only need to
+            ! score to one bin. For the score to be 'analog', we need to
+            ! score the number of particles that were banked in the fission
+            ! bank. Since this was weighted by 1/keff, we multiply by keff
+            ! to get the proper score.
+            score = ( (keff * normalize + (1- normalize) ) * p % wgt_bank)**3
+          end if
+
+        else
+          if (i_nuclide > 0) then
+            score = (micro_xs(i_nuclide) % nu_fission * atom_density * flux)**3
+          else
+            score = (material_xs % nu_fission * flux)**3
           end if
         end if
 
@@ -759,7 +935,7 @@ contains
         endif
 !$omp atomic
         t % results(score_index, filter_index) % value = &
-             t % results(score_index, filter_index) % value + score
+             t % results(score_index, filter_index) % value + score * correction
 
 
       case(SCORE_SCATTER_YN, SCORE_NU_SCATTER_YN)
@@ -779,7 +955,7 @@ contains
                % value = t &
                % results(score_index: score_index + num_nm - 1, filter_index)&
                % value &
-               + score * calc_pn(n, p % mu) * calc_rn(n, p % last_uvw)
+               + score * correction * calc_pn(n, p % mu) * calc_rn(n, p % last_uvw)
 !$omp end critical (score_general_scatt_yn)
         end do
         i = i + (t % moment_order(i) + 1)**2 - 1
@@ -808,7 +984,7 @@ contains
                % value = t &
                % results(score_index: score_index + num_nm - 1, filter_index)&
                % value &
-               + score * calc_rn(n, uvw)
+               + score * correction * calc_rn(n, uvw)
 !$omp end critical (score_general_flux_tot_yn)
         end do
         i = i + (t % moment_order(i) + 1)**2 - 1
@@ -826,7 +1002,7 @@ contains
 !$omp atomic
           t % results(score_index, filter_index) % value = &
                t % results(score_index, filter_index) % value &
-               + score * calc_pn(n, p % mu)
+               + score * correction * calc_pn(n, p % mu)
         end do
         i = i + t % moment_order(i)
 
@@ -834,7 +1010,7 @@ contains
       case default
 !$omp atomic
         t % results(score_index, filter_index) % value = &
-             t % results(score_index, filter_index) % value + score
+             t % results(score_index, filter_index) % value + score * correction
 
 
       end select
@@ -1697,6 +1873,36 @@ contains
 
   end subroutine score_collision_tally
 
+
+!===============================================================================
+! GET_SOURCE_BINS determines histogram of fission source
+!===============================================================================
+
+  subroutine get_source_bins()
+    integer :: i_source_count
+    integer :: i_source
+    integer(4) :: i_bin
+    real(8)    :: xyz(3)
+    type(SourceCount), pointer :: sc
+    type(RegularMesh), pointer :: m
+
+    do i_source_count = 1, n_source_counts
+       sc => source_counts(i_source_count)
+       sc % results = 0
+    end do
+
+
+    do i_source = 1, size(source_bank)
+       xyz = source_bank(i_source)%xyz
+       do i_source_count = 1, n_source_counts
+          sc => source_counts(i_source_count)
+          m  => meshes(sc % mesh_index)
+          call get_mesh_bin(m, xyz, i_bin)
+          sc % results(i_bin) = sc % results(i_bin) + 1
+       end do
+    end do
+
+  end subroutine get_source_bins
 !===============================================================================
 ! GET_SCORING_BINS determines a combination of filter bins that should be scored
 ! for a tally based on the particle's current attributes.
@@ -1730,6 +1936,14 @@ contains
 
         ! Determine if we're in the mesh first
         call get_mesh_bin(m, p % coord(1) % xyz, matching_bins(i))
+
+      case (FILTER_MESHBORN)
+        ! determine mesh bin
+        m => meshes(t % filters(i) % int_bins(1))
+
+        ! Determine if we're in the mesh first
+        call get_mesh_bin(m, p % born_xyz, matching_bins(i))
+
 
       case (FILTER_UNIVERSE)
         ! determine next universe bin
@@ -1927,6 +2141,7 @@ contains
     integer :: filter_index         ! index of scoring bin
     integer :: i_filter_mesh        ! index of mesh filter in filters array
     integer :: i_filter_surf        ! index of surface filter in filters
+    integer :: i_filter_other
     real(8) :: uvw(3)               ! cosine of angle of particle
     real(8) :: xyz0(3)              ! starting/intermediate coordinates
     real(8) :: xyz1(3)              ! ending coordinates of particle
@@ -1940,6 +2155,7 @@ contains
     logical :: z_same               ! same starting/ending z index (k)
     type(TallyObject), pointer :: t
     type(RegularMesh), pointer :: m
+    integer :: correction 
 
     TALLY_LOOP: do i = 1, active_current_tallies % size()
       ! Copy starting and ending location of particle
@@ -1949,10 +2165,34 @@ contains
       ! Get pointer to tally
       i_tally = active_current_tallies % get_item(i)
       t => tallies(i_tally)
+      if( 1 == ( t % first_second - p % notSecondary ) ) then
+         correction = 0
+      else 
+         correction = 1
+      end if
 
       ! Get index for mesh and surface filters
       i_filter_mesh = t % find_filter(FILTER_MESH)
       i_filter_surf = t % find_filter(FILTER_SURFACE)
+
+      do i_filter_other = 1, t % n_filters
+         if ( (i_filter_mesh == i_filter_other) .or. &
+              (i_filter_surf == i_filter_other) ) &
+              cycle
+         select case (t % filters(i_filter_other) % type )
+         case (FILTER_MESHBORN)
+            ! determine mesh bin
+            m => meshes(t % filters(i_filter_other) % int_bins(1))
+
+            ! Determine if we're in the mesh first
+            call get_mesh_bin(m, p % born_xyz, matching_bins(i_filter_other))
+            
+         case default
+            matching_bins(i_filter_other) = 1
+            !TODO: not want to repeat get_scoring_bins(), 
+            !      currently MESHBORN is the only 'other' filter 
+         end select
+      end do
 
       ! Determine indices for starting and ending location
       m => meshes(t % filters(i_filter_mesh) % int_bins(1))
@@ -2012,7 +2252,7 @@ contains
               filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
 !$omp atomic
               t % results(1, filter_index) % value = &
-                   t % results(1, filter_index) % value + p % wgt
+                   t % results(1, filter_index) % value + p % wgt * correction 
             end if
           end do
         else
@@ -2025,7 +2265,7 @@ contains
               filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
 !$omp atomic
               t % results(1, filter_index) % value = &
-                   t % results(1, filter_index) % value + p % wgt
+                   t % results(1, filter_index) % value + p % wgt * correction
             end if
           end do
         end if
@@ -2042,7 +2282,7 @@ contains
               filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
 !$omp atomic
               t % results(1, filter_index) % value = &
-                   t % results(1, filter_index) % value + p % wgt
+                   t % results(1, filter_index) % value + p % wgt * correction
             end if
           end do
         else
@@ -2055,7 +2295,7 @@ contains
               filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
 !$omp atomic
               t % results(1, filter_index) % value = &
-                   t % results(1, filter_index) % value + p % wgt
+                   t % results(1, filter_index) % value + p % wgt * correction
             end if
           end do
         end if
@@ -2072,7 +2312,7 @@ contains
               filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
 !$omp atomic
               t % results(1, filter_index) % value = &
-                   t % results(1, filter_index) % value + p % wgt
+                   t % results(1, filter_index) % value + p % wgt * correction
             end if
           end do
         else
@@ -2085,7 +2325,7 @@ contains
               filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
 !$omp atomic
               t % results(1, filter_index) % value = &
-                   t % results(1, filter_index) % value + p % wgt
+                   t % results(1, filter_index) % value + p % wgt * correction
             end if
           end do
         end if
@@ -2209,7 +2449,7 @@ contains
           ! Add to surface current tally
 !$omp atomic
           t % results(1, filter_index) % value = &
-               t % results(1, filter_index) % value + p % wgt
+               t % results(1, filter_index) % value + p % wgt * correction
         end if
 
         ! Calculate new coordinates
@@ -2401,6 +2641,44 @@ contains
     end if
 
   end subroutine reduce_tally_results
+
+
+  subroutine reduce_source_count_results()
+
+    integer :: i
+    integer(8), allocatable :: count_temp(:) 
+    integer(8) :: dummy  ! temporary receive buffer for non-root reduces
+    type(SourceCount), pointer :: sc
+
+    do i = 1, n_source_counts
+      sc => source_counts(i)
+
+      allocate(count_temp(sc % n_bins))
+
+      count_temp = sc % results(:) 
+
+      if (master) then
+        ! The MPI_IN_PLACE specifier allows the master to copy values into
+        ! a receive buffer without having a temporary variable
+        call MPI_REDUCE(MPI_IN_PLACE, count_temp, sc % n_bins, MPI_INTEGER8, &
+             MPI_SUM, 0, MPI_COMM_WORLD, mpi_err)
+
+        ! Transfer values to value on master
+        sc % results(:) = count_temp
+      else
+        ! Receive buffer not significant at other processors
+        call MPI_REDUCE(count_temp, dummy, sc % n_bins, MPI_INTEGER8, &
+             MPI_SUM, 0, MPI_COMM_WORLD, mpi_err)
+
+        ! Reset value on other processors
+        sc % results(:) = 0
+      end if
+
+      deallocate(count_temp)
+    end do
+
+  end subroutine reduce_source_count_results
+
 #endif
 
 !===============================================================================

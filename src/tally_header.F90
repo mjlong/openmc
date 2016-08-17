@@ -1,11 +1,20 @@
 module tally_header
 
-  use constants,          only: NONE, N_FILTER_TYPES
+  use constants,          only: NONE, N_FILTER_TYPES, FLAG_FIRSTSECOND, &
+                                FLAG_FIRSTONLY, FLAG_SECONDONLY
   use trigger_header,     only: TriggerObject
   use, intrinsic :: ISO_C_BINDING
 
   implicit none
 
+
+  type SourceCount
+     integer :: id
+     integer :: mesh_index
+     integer :: n_bins
+     integer(8), allocatable    :: results(:)
+  end type SourceCount
+     
 !===============================================================================
 ! TALLYMAPELEMENT gives an index to a tally which is to be scored and the
 ! corresponding bin for the filter variable
@@ -72,6 +81,7 @@ module tally_header
     integer :: id                   ! user-defined identifier
     character(len=104) :: name = "" ! user-defined name
     integer :: type                 ! volume, surface current
+    integer :: first_second = FLAG_FIRSTSECOND
     integer :: estimator            ! collision, track-length
     real(8) :: volume               ! volume of region
 

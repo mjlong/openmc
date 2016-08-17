@@ -564,6 +564,9 @@ contains
     write(UNIT=ou, FMT='(A8,3X)', ADVANCE='NO') "   k    "
     if (entropy_on) write(UNIT=ou, FMT='(A8,3X)', ADVANCE='NO') "Entropy "
     write(UNIT=ou, FMT='(A20,3X)', ADVANCE='NO') "     Average k      "
+    if(0==normalize) &
+         write(UNIT=ou, FMT='(A20,3X)', ADVANCE='NO') " number of particles "
+
     if (cmfd_run) then
       write(UNIT=ou, FMT='(A8,3X)', ADVANCE='NO') " CMFD k "
       select case(trim(cmfd_display))
@@ -583,6 +586,8 @@ contains
     write(UNIT=ou, FMT='(A8,3X)', ADVANCE='NO') "========"
     if (entropy_on) write(UNIT=ou, FMT='(A8,3X)', ADVANCE='NO') "========"
     write(UNIT=ou, FMT='(A20,3X)', ADVANCE='NO') "===================="
+    if(0==normalize) &
+         write(UNIT=ou, FMT='(A20,3X)', ADVANCE='NO') "===================="
     if (cmfd_run) then
       write(UNIT=ou, FMT='(A8,3X)', ADVANCE='NO') "========"
       if (cmfd_display /= '') &
@@ -662,6 +667,12 @@ contains
                cmfd % dom(current_batch)
       end select
     end if
+
+    ! write out cur_particles if normalize = .false.
+    if( 0 == normalize ) then
+       write(UNIT=OUTPUT_UNIT, FMT='(3X,A10)', ADVANCE='NO') &
+            trim(to_str(int(total_weight,4)))
+    endif
 
     ! next line
     write(UNIT=OUTPUT_UNIT, FMT=*)

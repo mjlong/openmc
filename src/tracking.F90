@@ -72,6 +72,7 @@ contains
 
         ! set birth cell attribute
         if (p % cell_born == NONE) p % cell_born = p % coord(p % n_coord) % cell
+        p % born_xyz = p % coord(1) % xyz
       end if
 
       ! Write particle track.
@@ -197,11 +198,21 @@ contains
         p % alive = .false.
       end if
 
+      ! Update p % born_xyz and p % notSecondary if this particle is one of the
+      ! (n,xn) secondary particles but remained as a first particle
+      ! these two attributes must be reset here after last tally and text event
+      if( nxn_justnow ) then 
+         p % notSecondary = 0 
+         p % born_xyz = p % coord(1) % xyz
+         nxn_justnow = .false.
+      end if 
+
       ! Check for secondary particles if this particle is dead
       if (.not. p % alive) then
         if (p % n_secondary > 0) then
           call p % initialize_from_source(p % secondary_bank(p % n_secondary))
           p % n_secondary = p % n_secondary - 1
+          p % notSecondary = 0
 
           ! Enter new particle in particle track file
           if (p % write_track) call add_particle_track()

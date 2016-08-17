@@ -1112,7 +1112,8 @@ contains
     end if
 
     ! Determine expected number of neutrons produced
-    nu_t = p % wgt / keff * weight * micro_xs(i_nuclide) % nu_fission / &
+    nu_t = p % wgt / ( keff*normalize + nu_factor*(1 - normalize) )* weight * &
+         micro_xs(i_nuclide) % nu_fission / &
          micro_xs(i_nuclide) % total
 
     ! Sample number of neutrons produced
@@ -1379,9 +1380,13 @@ contains
     p % coord(1) % uvw = rotate_angle(p % coord(1) % uvw, mu)
     ! change weight of particle based on yield
     if (rxn % multiplicity_with_E) then
+      write(*,*) 'warning: creating (n,xn) neutrons unanalogly'
       yield = interpolate_tab1(rxn % multiplicity_E, E_in)
       p % wgt = yield * p % wgt
     else
+      if(rxn % multiplicity >= 2) then 
+         nxn_justnow = .true. 
+      end if
       do i = 1, rxn % multiplicity - 1
         call p % create_secondary(p % coord(1) % uvw, NEUTRON)
       end do

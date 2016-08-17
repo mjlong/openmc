@@ -2,6 +2,7 @@ module simulation
 
 #ifdef MPI
   use mpi
+  use tally,        only: reduce_source_count_results
 #endif
 
   use cmfd_execute, only: cmfd_init_batch, execute_cmfd
@@ -23,7 +24,7 @@ module simulation
   use state_point,  only: write_state_point, write_source_point
   use string,       only: to_str
   use tally,        only: synchronize_tallies, setup_active_usertallies, &
-                          reset_result
+                          reset_result, get_source_bins 
   use trigger,      only: check_triggers
   use tracking,     only: transport
 
@@ -142,6 +143,7 @@ contains
 #endif
     ! set defaults
     call p % initialize_from_source(source_bank(index_source))
+    p % notSecondary = 1
 
     ! set identifier for particle
     p % id = work_index(rank) + index_source
@@ -233,6 +235,7 @@ contains
   subroutine initialize_generation()
 
     ! set overall generation number
+    if(1 == current_gen) call get_source_bins()
     overall_gen = gen_per_batch*(current_batch - 1) + current_gen
 
     ! Set pointers for fission bank push/pull
@@ -340,6 +343,9 @@ contains
     call synchronize_tallies()
     call time_tallies % stop()
 
+#ifdef MPI
+    call reduce_source_count_results()
+#endif
     ! Reset global tally results
     if (.not. active_batches) then
       call reset_result(global_tallies)

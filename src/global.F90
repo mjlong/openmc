@@ -13,7 +13,7 @@ module global
   use set_header,       only: SetInt
   use surface_header,   only: SurfaceContainer
   use source_header,    only: ExtSource
-  use tally_header,     only: TallyObject, TallyMap, TallyResult
+  use tally_header,     only: SourceCount, TallyObject, TallyMap, TallyResult
   use trigger_header,   only: KTrigger
   use timer_header,     only: Timer
 
@@ -97,6 +97,7 @@ module global
 
   type(RegularMesh), allocatable, target :: meshes(:)
   type(TallyObject),    allocatable, target :: tallies(:)
+  type(SourceCount), allocatable, target :: source_counts(:)
   integer, allocatable :: matching_bins(:)
 
   ! Pointers for different tallies
@@ -144,6 +145,7 @@ module global
   integer :: n_user_meshes  = 0 ! # of structured user meshes
   integer :: n_tallies      = 0 ! # of tallies
   integer :: n_user_tallies = 0 ! # of user tallies
+  integer :: n_source_counts= 0 
 
   ! Normalization for statistics
   integer :: n_realizations = 0 ! # of independent realizations
@@ -162,10 +164,14 @@ module global
   ! Use confidence intervals for results instead of standard deviations
   logical :: confidence_intervals = .false.
 
+  logical :: nxn_justnow          = .false.
+!$omp threadprivate(nxn_justnow)
+
   ! ============================================================================
   ! EIGENVALUE SIMULATION VARIABLES
 
   integer(8) :: n_particles = 0   ! # of particles per generation
+  integer(8) :: cur_particles = 0 ! # of particles per generation  
   integer    :: n_batches         ! # of batches
   integer    :: n_inactive        ! # of inactive batches
   integer    :: n_delay           ! # of delayed batches (1 generation per batch if delayed)
@@ -212,6 +218,10 @@ module global
   real(8) :: k_col_tra = ZERO ! sum over batches of k_collision * k_tracklength
   real(8) :: k_abs_tra = ZERO ! sum over batches of k_absorption * k_tracklength
   real(8) :: k_combined(2)    ! combined best estimate of k-effective
+
+  ! Nu
+  integer :: normalize = 1 
+  real(8) :: nu_factor = ONE
 
   ! Shannon entropy
   logical :: entropy_on = .false.
@@ -478,6 +488,7 @@ contains
     if (allocated(global_tallies)) deallocate(global_tallies)
     if (allocated(meshes)) deallocate(meshes)
     if (allocated(tallies)) deallocate(tallies)
+    if (allocated(source_counts)) Deallocate(source_counts)
     if (allocated(matching_bins)) deallocate(matching_bins)
     if (allocated(tally_maps)) deallocate(tally_maps)
 

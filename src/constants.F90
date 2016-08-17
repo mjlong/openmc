@@ -258,8 +258,14 @@ module constants
        EVENT_SCATTER =  1, &
        EVENT_ABSORB  =  2
 
+  ! Tally score flag
+  integer, parameter :: &
+       FLAG_FIRSTSECOND        =   0, &
+       FLAG_FIRSTONLY          =   1, &
+       FLAG_SECONDONLY         =   2
+
   ! Tally score type
-  integer, parameter :: N_SCORE_TYPES = 22
+  integer, parameter :: N_SCORE_TYPES = 28
   integer, parameter :: &
        SCORE_FLUX               = -1,  & ! flux
        SCORE_TOTAL              = -2,  & ! total reaction rate
@@ -274,6 +280,12 @@ module constants
        SCORE_ABSORPTION         = -11, & ! absorption rate
        SCORE_FISSION            = -12, & ! fission rate
        SCORE_NU_FISSION         = -13, & ! neutron production rate
+       SCORE_NU0_FISSION        = -23, & ! neutron production rate
+       SCORE_NU2_FISSION        = -24, & ! neutron production rate
+       SCORE_NU3_FISSION        = -25, & ! neutron production rate
+       SCORE_NU1_NXN            = -26, &
+       SCORE_NU2_NXN            = -27, &
+       SCORE_NU0_NXN            = -28, &
        SCORE_KAPPA_FISSION      = -14, & ! fission energy production rate
        SCORE_CURRENT            = -15, & ! partial current
        SCORE_FLUX_YN            = -16, & ! angular moment of flux
@@ -305,7 +317,7 @@ module constants
   integer, parameter :: NO_BIN_FOUND = -1
 
   ! Tally filter and map types
-  integer, parameter :: N_FILTER_TYPES = 13
+  integer, parameter :: N_FILTER_TYPES = 14
   integer, parameter :: &
        FILTER_UNIVERSE     = 1,  &
        FILTER_MATERIAL     = 2,  &
@@ -319,7 +331,8 @@ module constants
        FILTER_MU           = 10, &
        FILTER_POLAR        = 11, &
        FILTER_AZIMUTHAL    = 12, &
-       FILTER_DELAYEDGROUP = 13
+       FILTER_DELAYEDGROUP = 13, &
+       FILTER_MESHBORN     = 14
 
   ! Mesh types
   integer, parameter :: &
