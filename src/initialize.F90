@@ -917,7 +917,6 @@ contains
       ! collect the sites from each thread.
 
       n_threads = omp_get_max_threads()
-      write(*,*) 'n_threads=', n_threads
 
 !$omp parallel
       if (allocated(fission_bank))        deallocate(fission_bank)
