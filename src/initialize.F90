@@ -932,7 +932,7 @@ contains
 #else
       if (allocated(fission_bank))        deallocate(fission_bank)
 
-	  allocate(fission_bank(3*work*n_delay), STAT=alloc_err)
+      allocate(fission_bank(3*work*n_delay), STAT=alloc_err)
       allocate(n_banks(n_delay), STAT=alloc_err)
 #endif
 
