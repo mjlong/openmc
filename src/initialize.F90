@@ -215,6 +215,7 @@ contains
     ! Determine master
     if (rank == 0) then
       master = .true.
+      write(*,*) 'n_procs=', n_procs
     else
       master = .false.
     end if
@@ -916,12 +917,14 @@ contains
       ! collect the sites from each thread.
 
       n_threads = omp_get_max_threads()
+      write(*,*) 'n_threads=', n_threads
 
 !$omp parallel
       if (allocated(fission_bank))        deallocate(fission_bank)
       thread_id = omp_get_thread_num()
 
       if (thread_id == 0) then
+        write(*,*) 'n_threads=', n_threads
         allocate(fission_bank(3*work*n_delay))
       else
         allocate(fission_bank(3*work*n_delay/n_threads))
