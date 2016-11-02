@@ -215,7 +215,7 @@ contains
     ! Determine master
     if (rank == 0) then
       master = .true.
-      write(*,*) 'n_procs=', n_procs
+      !write(*,*) 'n_procs=', n_procs
     else
       master = .false.
     end if
@@ -923,9 +923,10 @@ contains
       thread_id = omp_get_thread_num()
 
       if (thread_id == 0) then
-        write(*,*) 'n_threads=', n_threads
+        !write(*,*) 'thread_id/n_threads=', thread_id,n_threads
         allocate(fission_bank(3*work*n_delay))
       else
+        !write(*,*) 'thread_id/n_threads=', thread_id,n_threads
         allocate(fission_bank(3*work*n_delay/n_threads))
       end if
 !$omp end parallel
