@@ -360,6 +360,11 @@ contains
               str_array(j) = "nu1-nxn"
             case (SCORE_NU2_NXN)
               str_array(j) = "nu2-nxn"
+
+            case (SCORE_PATH_ABS)
+              str_array(j) = "path-abs"
+            case (SCORE_PATH_FIS)
+              str_array(j) = "path-fis"
  
             case (SCORE_NU_FISSION)
               str_array(j) = "nu-fission"

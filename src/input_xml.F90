@@ -3247,6 +3247,21 @@ contains
           case ('n4n', '(n,4n)')
             t % score_bins(j) = N_4N
 
+          case ('path-fis')
+            t % score_bins(j) = SCORE_PATH_FIS
+            if (t % find_filter(FILTER_ENERGYOUT) > 0) then
+              call fatal_error("Cannot tally path length rate with an outgoing &
+                   &energy filter.")
+            end if
+
+          case ('path-abs')
+            t % score_bins(j) = SCORE_PATH_ABS
+            if (t % find_filter(FILTER_ENERGYOUT) > 0) then
+              call fatal_error("Cannot tally path length rate with an outgoing &
+                   &energy filter.")
+            end if
+
+
           case ('absorption')
             t % score_bins(j) = SCORE_ABSORPTION
             if (t % find_filter(FILTER_ENERGYOUT) > 0) then

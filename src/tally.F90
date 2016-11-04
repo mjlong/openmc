@@ -507,6 +507,27 @@ contains
           end if
         end if
 
+      case (SCORE_PATH_ABS)
+        if (t % estimator == ESTIMATOR_ANALOG) then
+            ! Skip any event where the particle wasn't absorbed
+            if (p % event == EVENT_SCATTER) cycle SCORE_LOOP
+            ! All fission and absorption events will contribute here, so we
+            score = (( p % coord(1) % xyz(1) -  p % born_xyz(1) )**2  + &
+                     ( p % coord(1) % xyz(2) -  p % born_xyz(2) )**2  + &
+                     ( p % coord(1) % xyz(3) -  p % born_xyz(3) )**2 )**0.5 
+        end if
+
+
+      case (SCORE_PATH_FIS)
+        if (t % estimator == ESTIMATOR_ANALOG) then
+           ! Skip any non-fission events
+            if (.not. p % fission) cycle SCORE_LOOP
+            score = (( p % coord(1) % xyz(1) -  p % born_xyz(1) )**2  + &
+                     ( p % coord(1) % xyz(2) -  p % born_xyz(2) )**2  + &
+                     ( p % coord(1) % xyz(3) -  p % born_xyz(3) )**2 )**0.5 
+        end if
+
+
       case (SCORE_NU0_FISSION)
         if (t % estimator == ESTIMATOR_ANALOG) then
           if (survival_biasing) then
