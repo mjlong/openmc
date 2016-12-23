@@ -138,6 +138,9 @@ module constants
   ! Maximum number of lost particles
   integer, parameter :: MAX_LOST_PARTICLES = 10
 
+  ! Maximum number of lost particles, relative to the total number of particles
+  real(8), parameter :: REL_MAX_LOST_PARTICLES = 1e-5_8
+
   ! ============================================================================
   ! CROSS SECTION RELATED CONSTANTS
 
@@ -265,7 +268,7 @@ module constants
        FLAG_SECONDONLY         =   2
 
   ! Tally score type
-  integer, parameter :: N_SCORE_TYPES = 28
+  integer, parameter :: N_SCORE_TYPES = 30
   integer, parameter :: &
        SCORE_FLUX               = -1,  & ! flux
        SCORE_TOTAL              = -2,  & ! total reaction rate
@@ -286,6 +289,8 @@ module constants
        SCORE_NU1_NXN            = -26, &
        SCORE_NU2_NXN            = -27, &
        SCORE_NU0_NXN            = -28, &
+       SCORE_PATH_FIS           = -29, & ! path length fission
+       SCORE_PATH_ABS           = -30, & ! path length fission
        SCORE_KAPPA_FISSION      = -14, & ! fission energy production rate
        SCORE_CURRENT            = -15, & ! partial current
        SCORE_FLUX_YN            = -16, & ! angular moment of flux
