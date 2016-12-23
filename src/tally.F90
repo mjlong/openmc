@@ -553,7 +553,7 @@ contains
             ! score the number of particles that were banked in the fission
             ! bank. Since this was weighted by 1/keff, we multiply by keff
             ! to get the proper score.
-            score = ( (keff * normalize + (1- normalize) )  * p % wgt_bank)**2 
+            score = ( (keff * normalize + (1- normalize) )  * p % wgt_bank)**2
           end if
 
         else
