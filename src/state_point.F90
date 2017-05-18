@@ -46,9 +46,11 @@ contains
     integer(HID_T) :: cmfd_group, tallies_group, tally_group, meshes_group, &
                       mesh_group, filter_group, derivs_group, deriv_group, &
                       runtime_group
+    integer(HID_T) :: source_counts_group, source_count_group
     character(MAX_WORD_LEN), allocatable :: str_array(:)
     character(MAX_FILE_LEN)    :: filename
     type(TallyObject), pointer    :: tally
+    type(SourceCount), pointer    :: source_count
 
     ! Set filename for state point
     filename = trim(path_output) // 'statepoint.' // &
@@ -138,6 +140,20 @@ contains
       end if
 
       tallies_group = create_group(file_id, "tallies")
+
+      source_counts_group = create_group(tallies_group, "source_counts")
+      call write_dataset(source_counts_group, "n_source_counts",n_source_counts)
+      do i = 1, n_source_counts
+         source_count => source_counts(i)
+         source_count_group = create_group(source_counts_group, &
+              "source_count "//trim(to_str(source_count%id)))
+         call write_dataset(source_count_group, "bins", source_count%mesh_index)
+         call write_dataset(source_count_group, "results", source_count%results)
+         call close_group(source_count_group)
+      end do
+
+      call close_group(source_counts_group)
+
 
       ! Write number of meshes
       meshes_group = create_group(tallies_group, "meshes")

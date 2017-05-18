@@ -20,7 +20,7 @@ module global
   use set_header,       only: SetInt
   use surface_header,   only: SurfaceContainer
   use source_header,    only: SourceDistribution
-  use tally_header,     only: TallyObject, TallyDerivative
+  use tally_header,     only: SourceCount, TallyObject, TallyDerivative
   use trigger_header,   only: KTrigger
   use timer_header,     only: Timer
   use volume_header,    only: VolumeCalculation
@@ -139,6 +139,7 @@ module global
 
   type(RegularMesh), allocatable, target :: meshes(:)
   type(TallyObject),    allocatable, target :: tallies(:)
+  type(SourceCount), allocatable, target :: source_counts(:)
   integer, allocatable :: matching_bins(:)
   real(8), allocatable :: filter_weights(:)
 
@@ -184,6 +185,7 @@ module global
   integer :: n_user_meshes  = 0 ! # of structured user meshes
   integer :: n_tallies      = 0 ! # of tallies
   integer :: n_user_tallies = 0 ! # of user tallies
+  integer :: n_source_counts= 0
 
   ! Tally derivatives
   type(TallyDerivative), allocatable :: tally_derivs(:)
@@ -491,6 +493,7 @@ contains
     if (allocated(global_tallies)) deallocate(global_tallies)
     if (allocated(meshes)) deallocate(meshes)
     if (allocated(tallies)) deallocate(tallies)
+    if (allocated(source_counts)) deallocate(source_counts)
     if (allocated(matching_bins)) deallocate(matching_bins)
     if (allocated(filter_weights)) deallocate(filter_weights)
 

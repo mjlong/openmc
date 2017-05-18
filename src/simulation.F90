@@ -19,7 +19,10 @@ module simulation
   use state_point,     only: write_state_point, write_source_point
   use string,          only: to_str
   use tally,           only: synchronize_tallies, setup_active_usertallies, &
-                             tally_statistics
+                             tally_statistics, get_source_bins
+#ifdef MPI
+  use tally,           only: reduce_source_count_results
+#endif
   use trigger,         only: check_triggers
   use tracking,        only: transport
   use volume_calc,     only: run_volume_calculations
@@ -204,6 +207,7 @@ contains
 
   subroutine initialize_generation()
 
+    if(1 == current_gen) call get_source_bins()
     ! set overall generation number
     overall_gen = gen_per_batch*(current_batch - 1) + current_gen
 
@@ -297,6 +301,10 @@ contains
     call time_tallies % start()
     call synchronize_tallies()
     call time_tallies % stop()
+
+#ifdef MPI
+    call reduce_source_count_results()
+#endif
 
     ! Reset global tally results
     if (.not. active_batches) then

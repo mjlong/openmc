@@ -2,7 +2,7 @@ module tally_initialize
 
   use constants
   use global
-  use tally_header, only: TallyObject
+  use tally_header, only: SourceCount, TallyObject
 
   implicit none
   private
@@ -39,6 +39,13 @@ contains
     integer :: n                 ! temporary stride
     integer :: max_n_filters = 0 ! maximum number of filters
     type(TallyObject), pointer :: t
+    type(SourceCount), pointer :: sc
+
+    SOURCE_COUNT_LOOP: do i = 1, n_source_counts
+       sc => source_counts(i)
+       allocate(sc % results( sc % n_bins ))
+       sc % results = 0
+    end do SOURCE_COUNT_LOOP
 
     TALLY_LOOP: do i = 1, n_tallies
       ! Get pointer to tally

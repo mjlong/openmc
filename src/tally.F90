@@ -3020,6 +3020,37 @@ contains
   end subroutine score_collision_tally
 
 !===============================================================================
+! GET_SOURCE_BINS determines histogram of fission source
+!===============================================================================
+
+  subroutine get_source_bins()
+    integer :: i_source_count
+    integer :: i_source
+    integer(4) :: i_bin
+    real(8)    :: xyz(3)
+    type(SourceCount), pointer :: sc
+    type(RegularMesh), pointer :: m
+
+    do i_source_count = 1, n_source_counts
+       sc => source_counts(i_source_count)
+       sc % results = 0
+    end do
+
+
+    do i_source = 1, size(source_bank)
+       xyz = source_bank(i_source)%xyz
+       do i_source_count = 1, n_source_counts
+          sc => source_counts(i_source_count)
+          m  => meshes(sc % mesh_index)
+          call get_mesh_bin(m, xyz, i_bin)
+          sc % results(i_bin) = sc % results(i_bin) + 1
+       end do
+    end do
+
+  end subroutine get_source_bins
+
+
+!===============================================================================
 ! SCORE_SURFACE_CURRENT tallies surface crossings in a mesh tally by manually
 ! determining which mesh surfaces were crossed
 !===============================================================================
@@ -4187,6 +4218,45 @@ contains
     end if
 
   end subroutine reduce_tally_results
+
+
+  subroutine reduce_source_count_results()
+
+    integer :: i
+    integer(8), allocatable :: count_temp(:)
+    integer(8) :: dummy  ! temporary receive buffer for non-root reduces
+    type(SourceCount), pointer :: sc
+
+    do i = 1, n_source_counts
+      sc => source_counts(i)
+
+      allocate(count_temp(sc % n_bins))
+
+      count_temp = sc % results(:)
+
+      if (master) then
+        ! The MPI_IN_PLACE specifier allows the master to copy values into
+        ! a receive buffer without having a temporary variable
+        call MPI_REDUCE(MPI_IN_PLACE, count_temp, sc % n_bins, MPI_INTEGER8, &
+             MPI_SUM, 0, MPI_COMM_WORLD, mpi_err)
+
+        ! Transfer values to value on master
+        sc % results(:) = count_temp
+      else
+        ! Receive buffer not significant at other processors
+        call MPI_REDUCE(count_temp, dummy, sc % n_bins, MPI_INTEGER8, &
+             MPI_SUM, 0, MPI_COMM_WORLD, mpi_err)
+
+        ! Reset value on other processors
+        sc % results(:) = 0
+      end if
+
+      deallocate(count_temp)
+    end do
+
+  end subroutine reduce_source_count_results
+
+
 #endif
 
 !===============================================================================

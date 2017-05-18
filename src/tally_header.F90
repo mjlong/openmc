@@ -10,6 +10,13 @@ module tally_header
 
   implicit none
 
+  type SourceCount
+     integer :: id
+     integer :: mesh_index
+     integer :: n_bins
+     integer(8), allocatable    :: results(:)
+  end type SourceCount
+
 !===============================================================================
 ! TALLYDERIVATIVE describes a first-order derivative that can be applied to
 ! tallies.
