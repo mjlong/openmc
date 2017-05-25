@@ -218,6 +218,12 @@ module global
   integer    :: overall_gen   = 0 ! overall generation in the run
 
   ! ============================================================================
+  ! DELAYED NEUTRON METHOD VARIABLES
+  real(8) :: alpha = 1! fraction of prompt neutron over all neutrons
+  real(8) :: f        ! probability that a new neutron becomes source for next generation
+  real(8) :: p        ! probability that a delayed neutron becomes source for next generation
+
+  ! ============================================================================
   ! TALLY PRECISION TRIGGER VARIABLES
 
   integer        :: n_max_batches             ! max # of batches
