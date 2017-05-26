@@ -16,6 +16,7 @@ module simulation
   use particle_header, only: Particle
   use random_lcg,      only: set_particle_seed
   use source,          only: initialize_source, sample_external_source
+  use initialize,      only: allocate_banks, calculate_work
   use state_point,     only: write_state_point, write_source_point
   use string,          only: to_str
   use tally,           only: synchronize_tallies, setup_active_usertallies, &
