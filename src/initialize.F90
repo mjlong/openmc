@@ -682,12 +682,12 @@ contains
       ! From now on, work is set to be the number of prompt neutrons 
       ! the processor should track
       work = work - work_delay 
-      allocate(prompt_bank(work), STAT=alloc_err)
+      allocate(prompt_bank(work*2), STAT=alloc_err)
       if (alloc_err /= 0) then
         call fatal_error("Failed to allocate prompt bank.")
       end if
 
-      allocate(delayed_bank(work_delay), STAT=alloc_err)
+      allocate(delayed_bank(work_delay*2), STAT=alloc_err)
       if (alloc_err /= 0) then
         call fatal_error("Failed to allocate delayed bank.")
       end if
