@@ -210,6 +210,7 @@ module global
 
   integer(8) :: n_particles = 0   ! # of particles per generation
   integer(8) :: n_particles_total 
+  integer(8) :: n_particles_delay
   integer    :: n_batches         ! # of batches
   integer    :: n_inactive        ! # of inactive batches
   integer    :: n_active          ! # of active batches
