@@ -1024,6 +1024,8 @@ contains
     ! Get number of particles if it wasn't specified as a command-line argument
     if (n_particles == 0) then
       call get_node_value(node_base, "particles", n_particles)
+      n_particles_total = n_particles
+      n_particles_delay = 0
     end if
 
     ! Get number of basic batches

@@ -628,6 +628,37 @@ contains
       work_index(i+1) = i_bank
     end do
 
+    if(1==alpha .and. current_batch == n_inactive +1 ) then 
+
+    allocate(work_index_delay(0:n_procs))
+
+    ! Determine minimum amount of particles to simulate on each processor
+    min_work = n_particles_delay/n_procs
+
+    ! Determine number of processors that have one extra particle
+    remainder = int(mod(n_particles_delay, int(n_procs,8)), 4)
+
+    i_bank = n_particles
+    work_index_delay(0) = 0
+    do i = 0, n_procs - 1
+      ! Number of particles for rank i
+      if (i < remainder) then
+        work_i = min_work + 1
+      else
+        work_i = min_work
+      end if
+
+      ! Set number of particles
+      if (rank == i) work_delay = work_i
+
+      ! Set index into source bank for rank i
+      i_bank = i_bank + work_i
+      work_index_delay(i+1) = i_bank
+    end do
+
+
+    endif
+
   end subroutine calculate_work
 
 !===============================================================================
@@ -637,14 +668,32 @@ contains
   subroutine allocate_banks()
 
     integer :: alloc_err  ! allocation error code
+    
+    if( current_batch /= n_inactive + 1) then
+      ! Allocate source bank
+      allocate(source_bank(work), STAT=alloc_err)
+  
+      ! Check for allocation errors
+      if (alloc_err /= 0) then
+        call fatal_error("Failed to allocate source bank.")
+      end if
 
-    ! Allocate source bank
-    allocate(source_bank(work), STAT=alloc_err)
+    else
+      ! From now on, work is set to be the number of prompt neutrons 
+      ! the processor should track
+      work = work - work_delay 
+      allocate(prompt_bank(work), STAT=alloc_err)
+      if (alloc_err /= 0) then
+        call fatal_error("Failed to allocate prompt bank.")
+      end if
 
-    ! Check for allocation errors
-    if (alloc_err /= 0) then
-      call fatal_error("Failed to allocate source bank.")
-    end if
+      allocate(delayed_bank(work_delay), STAT=alloc_err)
+      if (alloc_err /= 0) then
+        call fatal_error("Failed to allocate delayed bank.")
+      end if
+
+    end if ! allocate source_bank only at the first inactive generation
+
 
     if (run_mode == MODE_EIGENVALUE) then
 #ifdef _OPENMP
@@ -656,6 +705,7 @@ contains
       n_threads = omp_get_max_threads()
 
 !$omp parallel
+      if(allocated(fission_bank)) deallocate(fission_bank)
       thread_id = omp_get_thread_num()
 
       if (thread_id == 0) then
@@ -664,8 +714,10 @@ contains
         allocate(fission_bank(3*work/n_threads))
       end if
 !$omp end parallel
+      if(allocated(master_fission_bank)) deallocate(master_fission_bank)
       allocate(master_fission_bank(3*work), STAT=alloc_err)
 #else
+      if(allocated(fission_bank)) deallocate(fission_bank)
       allocate(fission_bank(3*work), STAT=alloc_err)
 #endif
 

@@ -209,6 +209,7 @@ module global
   ! EIGENVALUE SIMULATION VARIABLES
 
   integer(8) :: n_particles = 0   ! # of particles per generation
+  integer(8) :: n_particles_total 
   integer    :: n_batches         ! # of batches
   integer    :: n_inactive        ! # of inactive batches
   integer    :: n_active          ! # of active batches
@@ -239,12 +240,16 @@ module global
   ! Source and fission bank
   type(Bank), allocatable, target :: source_bank(:)
   type(Bank), allocatable, target :: fission_bank(:)
+  type(Bank), allocatable, target :: prompt_bank(:)
+  type(Bank), allocatable, target :: delayed_bank(:)
 #ifdef _OPENMP
   type(Bank), allocatable, target :: master_fission_bank(:)
 #endif
   integer(8) :: n_bank       ! # of sites in fission bank
   integer(8) :: work         ! number of particles per processor
+  integer(8) :: work_delay 
   integer(8), allocatable :: work_index(:) ! starting index in source bank for each process
+  integer(8), allocatable :: work_index_delay(:) 
   integer(8) :: current_work ! index in source bank of current history simulated
 
   ! Temporary k-effective values
@@ -511,6 +516,8 @@ contains
     if (allocated(master_fission_bank)) deallocate(master_fission_bank)
 #endif
     if (allocated(source_bank)) deallocate(source_bank)
+    if (allocated(prompt_bank)) deallocate(prompt_bank)
+    if (allocated(delayed_bank)) deallocate(delayed_bank)
     if (allocated(entropy_p)) deallocate(entropy_p)
 
     ! Deallocate array of work indices

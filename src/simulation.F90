@@ -180,6 +180,12 @@ contains
     total_weight = ZERO
 
     if (current_batch == n_inactive + 1) then
+      ! Configure delayed neutrons bank
+      n_particles = n_particles_total * alpha
+      n_particles_delay = n_particles_total - n_particles
+      call calculate_work()
+      call allocate_banks()  
+
       ! Switch from inactive batch timer to active batch timer
       call time_inactive % stop()
       call time_active % start()
