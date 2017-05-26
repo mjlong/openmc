@@ -1003,17 +1003,15 @@ contains
       call get_node_value(node_base, "alpha", alpha)
       if (check_for_node(node_base, "f")) then
         call get_node_value(node_base, "f", f)
-        if(f<2-1/alpha) then 
-          f = (2-1/alpha)
+        if(f<2-1/alpha) f = (2-1/alpha)
         p = alpha/(1-alpha)*(1-f)
       end if
       if (check_for_node(node_base, "p")) then
         call get_node_value(node_base, "p", p)
-        if(p>alpha/(1-alpha) ) then 
-          p = alpha/(1-alpha) 
+        if(p>alpha/(1-alpha) ) p = alpha/(1-alpha) 
         f = 1-p*(1-alpha)/alpha
       end if
-
+    
     end if
 
     ! Check number of particles
