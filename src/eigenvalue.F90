@@ -20,9 +20,8 @@ module eigenvalue
 contains
 
 !===============================================================================
-! SYNCHRONIZE_BANK samples source sites from the fission sites that were
-! accumulated during the generation. This routine is what allows this Monte
-! Carlo to scale to large numbers of processors where other codes cannot.
+! PREPARE_BANK samples sample a*s*f and (1-a)*s*p to next generation; 
+! and the remaining a*s*(1-f) and (1-a)*s*(1-p) to delayed bank 
 !===============================================================================
 
   subroutine prepare_bank()
