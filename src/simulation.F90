@@ -4,7 +4,8 @@ module simulation
   use constants,       only: ZERO
   use eigenvalue,      only: count_source_for_ufs, calculate_average_keff, &
                              calculate_combined_keff, calculate_generation_keff, &
-                             shannon_entropy, synchronize_bank, keff_generation
+                             shannon_entropy, synchronize_bank, keff_generation, &
+                             prepare_bank
 #ifdef _OPENMP
   use eigenvalue,      only: join_bank_from_threads
 #endif
@@ -271,7 +272,11 @@ contains
 
       ! Distribute fission bank across processors evenly
       call time_bank % start()
-      call synchronize_bank()
+      if(active_batches) then 
+        call prepare_bank()
+      else
+        call synchronize_bank()
+      endif
       call time_bank % stop()
 
       ! Calculate shannon entropy

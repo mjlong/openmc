@@ -25,6 +25,68 @@ contains
 ! Carlo to scale to large numbers of processors where other codes cannot.
 !===============================================================================
 
+  subroutine prepare_bank()
+    integer    :: i
+    integer    :: j 
+    integer    :: shift
+    integer(8) :: num_from_fission
+    integer(8) :: num_from_delayed
+    integer(8) :: num_prompt
+    integer(8) :: num_delayed
+
+    num_from_fission = floor( n_bank * f )
+    num_from_delayed = floor( work_delay * p )
+    num_prompt  =  num_from_fission + num_from_delayed
+    num_delayed = n_bank + work_delay - num_prompt
+
+    call set_particle_seed(int((current_batch - 1)*gen_per_batch + &
+         current_gen,8))
+    call advance_prn_seed( int(rank,8) )
+    
+    ! select n_bank*f from n_bank (fission_bank to prompt bank)
+    ! select n_delay*p from n_delay (second part of source_bank to delayed bank)
+
+    ! split fission_bank
+    do i = 1, int(num_from_fission,4)
+      prompt_bank(i) = fission_bank(i)
+    end do
+
+    do i = 1+int(num_from_fission,4), n_bank
+      j = 1 + floor( num_from_fission * prn() )
+      if( j <= num_from_fission ) then
+        delayed_bank(i-num_from_fission) = prompt_bank(j)
+        prompt_bank(j) = fission_bank(i)     
+      else 
+        delayed_bank(i-num_from_fission) = fission_bank(i)
+      end if
+    end do
+
+    ! split source_bank (with delayed neutrons)
+    shift = n_particles + work_index_delay(rank)
+    do i = 1, int(num_from_delayed,4)
+      prompt_bank(num_from_fission + i) = source_bank(shift + i-1)
+    end do
+
+    do i = 1+int(num_from_delayed,4), work_delay
+      j = 1 + floor( num_from_delayed * prn() )
+      if( j <= num_from_delayed ) then 
+        delayed_bank(n_bank - num_from_fission + i-num_from_delayed) = &
+             prompt_bank(num_from_fission + j)
+        prompt_bank(num_from_fission + j) = source_bank(shift+i-1)
+      else
+        delayed_bank(n_bank - num_from_fission + i-num_from_delayed) = &
+             source_bank(shift + i-1) 
+      end if
+    end do
+
+  end subroutine prepare_bank
+
+!===============================================================================
+! SYNCHRONIZE_BANK samples source sites from the fission sites that were
+! accumulated during the generation. This routine is what allows this Monte
+! Carlo to scale to large numbers of processors where other codes cannot.
+!===============================================================================
+
   subroutine synchronize_bank()
 
     integer    :: i            ! loop indices
