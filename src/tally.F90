@@ -697,6 +697,9 @@ contains
         ! Set the delayedgroup filter index
         dg_filter = t % find_filter(FILTER_DELAYEDGROUP)
 
+!TODO: n_bank and fission_bank(:) are used, 
+!      but what really matters is n_bankp and prompt_bank(:)
+
         if (t % estimator == ESTIMATOR_ANALOG) then
           if (survival_biasing) then
             ! No fission events occur if survival biasing is on -- need to

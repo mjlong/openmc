@@ -127,6 +127,8 @@ contains
 ! weighting)
 !===============================================================================
 
+!TODO: bank_array may need to be changed from fission_bank to prompt_bank
+!      and size_bank changed from n_bank to n_pbank
   subroutine count_bank_sites(m, bank_array, cnt, energies, size_bank, &
        sites_outside)
 
