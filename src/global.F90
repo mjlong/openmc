@@ -247,6 +247,8 @@ module global
   type(Bank), allocatable, target :: master_fission_bank(:)
 #endif
   integer(8) :: n_bank       ! # of sites in fission bank
+  integer(8) :: n_pbank    
+  integer(8) :: n_dbank    
   integer(8) :: work         ! number of particles per processor
   integer(8) :: work_delay 
   integer(8), allocatable :: work_index(:) ! starting index in source bank for each process
