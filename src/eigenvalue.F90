@@ -20,23 +20,24 @@ module eigenvalue
 contains
 
 !===============================================================================
-! PREPARE_BANK samples sample a*s*f and (1-a)*s*p to next generation; 
-! and the remaining a*s*(1-f) and (1-a)*s*(1-p) to delayed bank 
+! PREPARE_BANK samples 
+! 1. a*s*f from fission bank and (1-a)*s*p from trailing source_bank to 
+!    next generation as prompt_bank
+! 2. the remaining a*s*(1-f) from fission bank and (1-a)*s*(1-p) from trailing 
+!    source_bank as delayed_bank 
 !===============================================================================
 
   subroutine prepare_bank()
     integer    :: i
     integer    :: j 
-    integer    :: shift
+    integer(8) :: shift
     integer(8) :: num_from_fission
     integer(8) :: num_from_delayed
-    integer(8) :: num_prompt
-    integer(8) :: num_delayed
 
     num_from_fission = floor( n_bank * f )
     num_from_delayed = floor( work_delay * p )
-    num_prompt  =  num_from_fission + num_from_delayed
-    num_delayed = n_bank + work_delay - num_prompt
+    n_pbank = num_from_fission + num_from_delayed
+    n_dbank = n_bank + work_delay - n_pbank
 
     call set_particle_seed(int((current_batch - 1)*gen_per_batch + &
          current_gen,8))
@@ -61,9 +62,9 @@ contains
     end do
 
     ! split source_bank (with delayed neutrons)
-    shift = n_particles + work_index_delay(rank)
+    shift = work_index(rank+1)
     do i = 1, int(num_from_delayed,4)
-      prompt_bank(num_from_fission + i) = source_bank(shift + i-1)
+      prompt_bank(num_from_fission + i) = source_bank(shift + i)
     end do
 
     do i = 1+int(num_from_delayed,4), work_delay
@@ -71,10 +72,10 @@ contains
       if( j <= num_from_delayed ) then 
         delayed_bank(n_bank - num_from_fission + i-num_from_delayed) = &
              prompt_bank(num_from_fission + j)
-        prompt_bank(num_from_fission + j) = source_bank(shift+i-1)
+        prompt_bank(num_from_fission + j) = source_bank(shift+i)
       else
         delayed_bank(n_bank - num_from_fission + i-num_from_delayed) = &
-             source_bank(shift + i-1) 
+             source_bank(shift + i) 
       end if
     end do
 
@@ -87,6 +88,35 @@ contains
 !===============================================================================
 
   subroutine synchronize_bank()
+
+    if( ( overall_gen <= n_inactive*gen_per_batch ) .or. 1==alpha) then
+      call synchronize_bank_explicit(n_particles, fission_bank, n_bank, &
+           int(0,8), work_index)
+    else
+
+      call prepare_bank()
+      call synchronize_bank_explicit(n_particles,       prompt_bank,  n_pbank, &
+           int(0,8), work_index)
+      call synchronize_bank_explicit(n_particles_delay, delayed_bank, n_dbank, &
+           int(work,8), work_index_delay)
+    end if
+
+  end subroutine synchronize_bank
+
+!===============================================================================
+! SYNCHRONIZE_BANK calls SYNCHRONIZE_BANK_EXPLICIT in different situations:
+! 1. fission_bank to source_bank in inactive generations
+! 2. prompt_bank  to 1st part of source_bank in active generations
+! 3. delayed_bank to 2nd part of source_bank in active generations
+!===============================================================================
+  
+  subroutine synchronize_bank_explicit(obj_n_particles, bank_array, &
+       size_bank, shift_bank, work_indices)
+    integer(8), intent(in)   :: obj_n_particles
+    type(Bank), intent(in)   :: bank_array(:)
+    integer(8), intent(in)   :: size_bank
+    integer(8), intent(in)   :: shift_bank
+    integer(8), intent(in)   :: work_indices(:)
 
     integer    :: i            ! loop indices
     integer    :: j            ! loop indices
@@ -124,7 +154,7 @@ contains
 
 #ifdef MPI
     start = 0_8
-    call MPI_EXSCAN(n_bank, start, 1, MPI_INTEGER8, MPI_SUM, &
+    call MPI_EXSCAN(size_bank, start, 1, MPI_INTEGER8, MPI_SUM, &
          mpi_intracomm, mpi_err)
 
     ! While we would expect the value of start on rank 0 to be 0, the MPI
@@ -132,15 +162,15 @@ contains
     ! significant
     if (rank == 0) start = 0_8
 
-    finish = start + n_bank
+    finish = start + size_bank
     total = finish
     call MPI_BCAST(total, 1, MPI_INTEGER8, n_procs - 1, &
          mpi_intracomm, mpi_err)
 
 #else
     start  = 0_8
-    finish = n_bank
-    total  = n_bank
+    finish = size_bank
+    total  = size_bank
 #endif
 
     ! If there are not that many particles per generation, it's possible that no
@@ -148,7 +178,7 @@ contains
     ! extra logic to treat this circumstance, we really want to ensure the user
     ! runs enough particles to avoid this in the first place.
 
-    if (n_bank == 0) then
+    if (size_bank == 0) then
       call fatal_error("No fission sites banked on processor " // to_str(rank))
     end if
 
@@ -163,10 +193,10 @@ contains
     ! Determine how many fission sites we need to sample from the source bank
     ! and the probability for selecting a site.
 
-    if (total < n_particles) then
-      sites_needed = mod(n_particles,total)
+    if (total < obj_n_particles) then
+      sites_needed = mod(obj_n_particles,total)
     else
-      sites_needed = n_particles
+      sites_needed = obj_n_particles
     end if
     p_sample = real(sites_needed,8)/real(total,8)
 
@@ -179,23 +209,23 @@ contains
     index_temp = 0_8
     if (.not. allocated(temp_sites)) allocate(temp_sites(3*work))
 
-    do i = 1, int(n_bank,4)
+    do i = 1, int(size_bank,4)
 
       ! If there are less than n_particles particles banked, automatically add
       ! int(n_particles/total) sites to temp_sites. For example, if you need
       ! 1000 and 300 were banked, this would add 3 source sites per banked site
       ! and the remaining 100 would be randomly sampled.
-      if (total < n_particles) then
-        do j = 1, int(n_particles/total)
+      if (total < obj_n_particles) then
+        do j = 1, int(obj_n_particles/total)
           index_temp = index_temp + 1
-          temp_sites(index_temp) = fission_bank(i)
+          temp_sites(index_temp) = bank_array(i)
         end do
       end if
 
       ! Randomly sample sites needed
       if (prn() < p_sample) then
         index_temp = index_temp + 1
-        temp_sites(index_temp) = fission_bank(i)
+        temp_sites(index_temp) = bank_array(i)
       end if
     end do
 
@@ -224,25 +254,26 @@ contains
     ! Now that the sampling is complete, we need to ensure that we have exactly
     ! n_particles source sites. The way this is done in a reproducible manner is
     ! to adjust only the source sites on the last processor.
-
     if (rank == n_procs - 1) then
-      if (finish > n_particles) then
+      if (finish > obj_n_particles) then
         ! If we have extra sites sampled, we will simply discard the extra
         ! ones on the last processor
-        index_temp = n_particles - start
+        index_temp = obj_n_particles - start
 
-      elseif (finish < n_particles) then
+      elseif (finish < obj_n_particles) then
         ! If we have too few sites, repeat sites from the very end of the
         ! fission bank
-        sites_needed = n_particles - finish
+        sites_needed = obj_n_particles - finish
+
         do i = 1, int(sites_needed,4)
           index_temp = index_temp + 1
-          temp_sites(index_temp) = fission_bank(n_bank - sites_needed + i)
+          temp_sites(index_temp) = bank_array(size_bank - sites_needed + i)
+
         end do
       end if
 
       ! the last processor should not be sending sites to right
-      finish = work_index(rank + 1)
+      finish = work_indices(rank + 1)
     end if
 
     call time_bank_sample % stop()
@@ -255,14 +286,14 @@ contains
     index_local = 1
     n_request = 0
 
-    if (start < n_particles) then
+    if (start < obj_n_particles) then
       ! Determine the index of the processor which has the first part of the
       ! source_bank for the local processor
-      neighbor = binary_search(work_index, n_procs + 1, start) - 1
+      neighbor = binary_search(work_indices, n_procs + 1, start) - 1
 
       SEND_SITES: do while (start < finish)
         ! Determine the number of sites to send
-        n = min(work_index(neighbor + 1), finish) - start
+        n = min(work_indices(neighbor + 1), finish) - start
 
         ! Initiate an asynchronous send of source sites to the neighboring
         ! process
@@ -287,7 +318,7 @@ contains
     ! ==========================================================================
     ! RECEIVE BANK SITES FROM NEIGHBORS OR TEMPORARY BANK
 
-    start = work_index(rank)
+    start = work_indices(rank)
     index_local = 1
 
     ! Determine what process has the source sites that will need to be stored at
@@ -299,12 +330,12 @@ contains
       neighbor = binary_search(bank_position, n_procs, start) - 1
     end if
 
-    RECV_SITES: do while (start < work_index(rank + 1))
+    RECV_SITES: do while (start < work_indices(rank + 1))
       ! Determine how many sites need to be received
       if (neighbor == n_procs - 1) then
-        n = work_index(rank + 1) - start
+        n = work_indices(rank + 1) - start
       else
-        n = min(bank_position(neighbor + 2), work_index(rank + 1)) - start
+        n = min(bank_position(neighbor + 2), work_indices(rank + 1)) - start
       end if
 
       if (neighbor /= rank) then
@@ -312,7 +343,7 @@ contains
         ! asynchronous receive for the source sites
 
         n_request = n_request + 1
-        call MPI_IRECV(source_bank(index_local), int(n), MPI_BANK, &
+        call MPI_IRECV(source_bank(shift_bank+index_local), int(n), MPI_BANK, &
              neighbor, neighbor, mpi_intracomm, request(n_request), mpi_err)
 
       else
@@ -320,7 +351,7 @@ contains
         ! from the temp_sites bank
 
         index_temp = start - bank_position(rank+1) + 1
-        source_bank(index_local:index_local+n-1) = &
+        source_bank(shift_bank+index_local:shift_bank+index_local+n-1) = &
              temp_sites(index_temp:index_temp+n-1)
       end if
 
@@ -340,7 +371,8 @@ contains
     if (current_batch == n_max_batches .and. current_gen == gen_per_batch) &
          deallocate(bank_position)
 #else
-    source_bank = temp_sites(1:n_particles)
+    source_bank(shift_bank+1:shift_bank+obj_n_particles) = &
+         temp_sites(1:obj_n_particles)
 #endif
 
     call time_bank_sendrecv % stop()
@@ -349,7 +381,7 @@ contains
     if (current_batch == n_max_batches .and. current_gen == gen_per_batch) &
          deallocate(temp_sites)
 
-  end subroutine synchronize_bank
+  end subroutine synchronize_bank_explicit
 
 !===============================================================================
 ! SHANNON_ENTROPY calculates the Shannon entropy of the fission source
