@@ -380,8 +380,7 @@ contains
 
     ! Deallocate space for the temporary source bank on the last generation
     if (current_batch == n_max_batches .and. current_gen == gen_per_batch &
-         .and. shift_bank .ne. int(0,8) ) 
-      deallocate(temp_sites)
+         .and. shift_bank .ne. int(0,8) ) deallocate(temp_sites)
 
   end subroutine synchronize_bank_explicit
 
