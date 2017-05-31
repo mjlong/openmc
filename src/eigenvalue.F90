@@ -62,7 +62,7 @@ contains
     end do
 
     ! split source_bank (with delayed neutrons)
-    shift = work_index(rank+1)
+    shift = work
     do i = 1, int(num_from_delayed,4)
       prompt_bank(num_from_fission + i) = source_bank(shift + i)
     end do
@@ -91,14 +91,14 @@ contains
 
     if( ( overall_gen <= n_inactive*gen_per_batch ) .or. 1==alpha) then
       call synchronize_bank_explicit(n_particles, fission_bank, n_bank, &
-           int(0,8), work_index)
+           int(   0,8), work_index,      work*3)
     else
 
       call prepare_bank()
       call synchronize_bank_explicit(n_particles,       prompt_bank,  n_pbank, &
-           int(0,8), work_index)
+           int(   0,8), work_index,      work*3)
       call synchronize_bank_explicit(n_particles_delay, delayed_bank, n_dbank, &
-           int(work,8), work_index_delay)
+           int(work,8), work_index_delay,work_delay*2)
     end if
 
   end subroutine synchronize_bank
@@ -111,12 +111,13 @@ contains
 !===============================================================================
   
   subroutine synchronize_bank_explicit(obj_n_particles, bank_array, &
-       size_bank, shift_bank, work_indices)
+       size_bank, shift_bank, work_indices, num_work)
     integer(8), intent(in)   :: obj_n_particles
     type(Bank), intent(in)   :: bank_array(:)
     integer(8), intent(in)   :: size_bank
     integer(8), intent(in)   :: shift_bank
-    integer(8), intent(in)   :: work_indices(:)
+    integer(8), intent(in)   :: num_work
+    integer(8), dimension(0:), intent(in)   :: work_indices
 
     integer    :: i            ! loop indices
     integer    :: j            ! loop indices
@@ -207,7 +208,7 @@ contains
 
     ! Allocate temporary source bank
     index_temp = 0_8
-    if (.not. allocated(temp_sites)) allocate(temp_sites(3*work))
+    if (.not. allocated(temp_sites)) allocate(temp_sites(num_work))
 
     do i = 1, int(size_bank,4)
 
@@ -378,8 +379,9 @@ contains
     call time_bank_sendrecv % stop()
 
     ! Deallocate space for the temporary source bank on the last generation
-    if (current_batch == n_max_batches .and. current_gen == gen_per_batch) &
-         deallocate(temp_sites)
+    if (current_batch == n_max_batches .and. current_gen == gen_per_batch &
+         .and. shift_bank .ne. int(0,8) ) 
+      deallocate(temp_sites)
 
   end subroutine synchronize_bank_explicit
 
