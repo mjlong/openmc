@@ -999,6 +999,8 @@ contains
     ! Check alpha, f, p
     if (.not. check_for_node(node_base, "alpha")) then
       alpha = 1
+      f = 1
+      p = 0
     else
       call get_node_value(node_base, "alpha", alpha)
       if (check_for_node(node_base, "f")) then
