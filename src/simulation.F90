@@ -182,12 +182,17 @@ contains
     total_weight = ZERO
 
     if (current_batch == n_inactive + 1) then
+! ==============================================================================
+!calculate_work and allocate_banks for delayed neutron scheme of eigenvalue_mode 
       ! Configure delayed neutrons bank
-      n_particles = n_particles_total * alpha
+      n_particles = floor( n_particles_total * alpha )
       n_particles_delay = n_particles_total - n_particles
+      ! From now on, work is set to be the number of prompt neutrons 
+      ! the processor should track
       call calculate_work()
       call allocate_banks()  
 
+! ==============================================================================
       ! Switch from inactive batch timer to active batch timer
       call time_inactive % stop()
       call time_active % start()
@@ -272,11 +277,7 @@ contains
 
       ! Distribute fission bank across processors evenly
       call time_bank % start()
-      if(active_batches) then 
-        call prepare_bank()
-      else
-        call synchronize_bank()
-      endif
+      call synchronize_bank()
       call time_bank % stop()
 
       ! Calculate shannon entropy
