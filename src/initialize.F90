@@ -602,7 +602,7 @@ contains
     integer(8) :: min_work  ! Minimum number of particles on each proc
     integer(8) :: work_i    ! Number of particles on rank i
 
-    allocate(work_index(0:n_procs))
+    if(.not. allocated(work_index)) allocate(work_index(0:n_procs))
 
     ! Determine minimum amount of particles to simulate on each processor
     min_work = n_particles/n_procs
@@ -628,7 +628,7 @@ contains
       work_index(i+1) = i_bank
     end do
 
-    if(1==alpha .and. current_batch == n_inactive +1 ) then 
+    if(1 .ne. alpha .and. overall_gen == n_inactive * gen_per_batch ) then 
 
     allocate(work_index_delay(0:n_procs))
 
@@ -638,7 +638,7 @@ contains
     ! Determine number of processors that have one extra particle
     remainder = int(mod(n_particles_delay, int(n_procs,8)), 4)
 
-    i_bank = n_particles
+    i_bank = 0
     work_index_delay(0) = 0
     do i = 0, n_procs - 1
       ! Number of particles for rank i
@@ -669,7 +669,7 @@ contains
 
     integer :: alloc_err  ! allocation error code
     
-    if( current_batch /= n_inactive + 1) then
+    if( overall_gen /= n_inactive*gen_per_batch ) then
       ! Allocate source bank
       allocate(source_bank(work), STAT=alloc_err)
   
@@ -679,9 +679,6 @@ contains
       end if
 
     else
-      ! From now on, work is set to be the number of prompt neutrons 
-      ! the processor should track
-      work = work - work_delay 
       allocate(prompt_bank(work*2), STAT=alloc_err)
       if (alloc_err /= 0) then
         call fatal_error("Failed to allocate prompt bank.")
