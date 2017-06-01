@@ -798,8 +798,6 @@ contains
       end if
       if (check_for_node(node_sp, "write")) then
         call get_node_value(node_sp, "write", source_write)
-        !source_write = .true.
-        write(*,*) source_write
       end if
       if (check_for_node(node_sp, "overwrite_latest")) then
         call get_node_value(node_sp, "overwrite_latest", source_latest)
