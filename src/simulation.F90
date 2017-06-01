@@ -356,6 +356,7 @@ contains
     if ((sourcepoint_batch % contains(current_batch) .or. source_latest) .and. &
          source_write) then
       call write_source_point()
+      write(*,*) 'source writed'
     end if
 
     if (master .and. current_batch == n_max_batches .and. &
