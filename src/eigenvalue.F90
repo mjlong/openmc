@@ -265,6 +265,14 @@ contains
         ! If we have too few sites, repeat sites from the very end of the
         ! fission bank
         sites_needed = obj_n_particles - finish
+        if(sites_needed > size_bank) then 
+           call warning("Not enough sites banked on last processor " // to_str(rank))
+           do i = 1, int(sites_needed/size_bank, 4)
+             temp_sites(index_temp+1:index_temp+size_bank) = bank_array(1:size_bank)
+             index_temp = index_temp + size_bank
+           end do
+           sites_needed = mod(sites_needed, size_bank)
+        end if
 
         do i = 1, int(sites_needed,4)
           index_temp = index_temp + 1
