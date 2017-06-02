@@ -885,8 +885,9 @@ contains
 
       ! Save source bank sites since the souce_bank array is overwritten below
 #ifdef MPI
+      ! TODO: currently only prompt source is written
       allocate(temp_source(work))
-      temp_source(:) = source_bank(:)
+      temp_source(:) = source_bank(1:work)
 #endif
 
       do i = 0, n_procs - 1
