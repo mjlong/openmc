@@ -679,7 +679,8 @@ contains
       end if
 
     else
-      allocate(prompt_bank(work*2), STAT=alloc_err)
+      if(alpha /= 1) then
+      allocate(prompt_bank(work*3), STAT=alloc_err)
       if (alloc_err /= 0) then
         call fatal_error("Failed to allocate prompt bank.")
       end if
@@ -688,7 +689,7 @@ contains
       if (alloc_err /= 0) then
         call fatal_error("Failed to allocate delayed bank.")
       end if
-
+      end if
     end if ! allocate source_bank only at the first inactive generation
 
 
