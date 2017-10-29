@@ -122,7 +122,7 @@ def find_new_id(current_ids, preferred=None):
     # If that was unsuccessful, attempt to randomly guess a new id number.
     for i in range(max_random_attempts):
         num = randint(1, 2147483647)
-        if num not in current_inds:
+        if num not in current_ids:
             return num
 
     # Raise an error if an id was not found.
