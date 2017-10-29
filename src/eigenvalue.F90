@@ -188,7 +188,7 @@ contains
     ! fission bank for each processor.
 
     call set_particle_seed(int((current_batch - 1)*gen_per_batch + &
-         current_gen,8))
+         current_gen + shift_bank,8))
     call advance_prn_seed(start)
 
     ! Determine how many fission sites we need to sample from the source bank
@@ -208,7 +208,8 @@ contains
 
     ! Allocate temporary source bank
     index_temp = 0_8
-    if (.not. allocated(temp_sites)) allocate(temp_sites(num_work))
+    if (allocated(temp_sites)) deallocate(temp_sites)
+    allocate(temp_sites(num_work))
 
     do i = 1, int(size_bank,4)
 
@@ -377,8 +378,8 @@ contains
     call MPI_WAITALL(n_request, request, MPI_STATUSES_IGNORE, mpi_err)
 
     ! Deallocate space for bank_position on the very last generation
-    if (current_batch == n_max_batches .and. current_gen == gen_per_batch) &
-         deallocate(bank_position)
+    if (current_batch == n_max_batches .and. current_gen == gen_per_batch &
+         .and. shift_bank .ne. int(0,8) ) deallocate(bank_position)
 #else
     source_bank(shift_bank+1:shift_bank+obj_n_particles) = &
          temp_sites(1:obj_n_particles)
