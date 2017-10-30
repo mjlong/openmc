@@ -8,14 +8,16 @@ from xml.etree import ElementTree as ET
 
 from six import add_metaclass
 import numpy as np
+import pandas as pd
 
 import openmc
 import openmc.checkvalue as cv
+from .mixin import IDManagerMixin
 
 
 _FILTER_TYPES = ['universe', 'material', 'cell', 'cellborn', 'surface',
                  'mesh', 'energy', 'energyout', 'mu', 'polar', 'azimuthal',
-                 'distribcell', 'delayedgroup', 'energyfunction']
+                 'distribcell', 'delayedgroup', 'energyfunction', 'cellfrom']
 
 _CURRENT_NAMES = {1:  'x-min out', 2:  'x-min in',
                   3:  'x-max out', 4:  'x-max in',
@@ -64,7 +66,7 @@ class FilterMeta(ABCMeta):
 
 
 @add_metaclass(FilterMeta)
-class Filter(object):
+class Filter(IDManagerMixin):
     """Tally modifier that describes phase-space and other characteristics.
 
     Parameters
@@ -73,11 +75,15 @@ class Filter(object):
         The bins for the filter. This takes on different meaning for different
         filters. See the docstrings for sublcasses of this filter or the online
         documentation for more details.
+    filter_id : int
+        Unique identifier for the filter
 
     Attributes
     ----------
     bins : Integral or Iterable of Integral or Iterable of Real
         The bins for the filter
+    id : int
+        Unique identifier for the filter
     num_bins : Integral
         The number of filter bins
     stride : Integral
@@ -86,8 +92,12 @@ class Filter(object):
 
     """
 
-    def __init__(self, bins):
+    next_id = 1
+    used_ids = set()
+
+    def __init__(self, bins, filter_id=None):
         self.bins = bins
+        self.id = filter_id
         self._num_bins = 0
         self._stride = None
 
@@ -120,11 +130,14 @@ class Filter(object):
         return not self > other
 
     def __hash__(self):
-        return hash(repr(self))
+        string = type(self).__name__ + '\n'
+        string += '{: <16}=\t{}\n'.format('\tBins', self.bins)
+        return hash(string)
 
     def __repr__(self):
         string = type(self).__name__ + '\n'
         string += '{: <16}=\t{}\n'.format('\tBins', self.bins)
+        string += '{: <16}=\t{}\n'.format('\tID', self.id)
         return string
 
     @classmethod
@@ -155,10 +168,12 @@ class Filter(object):
 
         """
 
+        filter_id = int(group.name.split('/')[-1].lstrip('filter '))
+
         # If the HDF5 'type' variable matches this class's short_name, then
         # there is no overriden from_hdf5 method.  Pass the bins to __init__.
         if group['type'].value.decode() == cls.short_name.lower():
-            out = cls(group['bins'].value)
+            out = cls(group['bins'].value, filter_id)
             out.num_bins = group['n_bins'].value
             return out
 
@@ -226,13 +241,19 @@ class Filter(object):
 
         Returns
         -------
-        ElementTree.Element
+        element : xml.etree.ElementTree.Element
+            XML element containing filter data
 
         """
 
+
         element = ET.Element('filter')
+        element.set('id', str(self.id))
         element.set('type', self.short_name.lower())
-        element.set('bins', ' '.join(str(b) for b in self.bins))
+
+        subelement = ET.SubElement(element, 'bins')
+        subelement.text = ' '.join(str(b) for b in self.bins)
+
         return element
 
     def can_merge(self, other):
@@ -279,7 +300,7 @@ class Filter(object):
         merged_bins = np.concatenate((self.bins, other.bins))
         merged_bins = np.unique(merged_bins)
 
-        # Create a new filter with these bins
+        # Create a new filter with these bins and a new auto-generated ID
         return type(self)(merged_bins)
 
     def is_subset(self, other):
@@ -420,9 +441,7 @@ class Filter(object):
         Tally.get_pandas_dataframe(), CrossFilter.get_pandas_dataframe()
 
         """
-
         # Initialize Pandas DataFrame
-        import pandas as pd
         df = pd.DataFrame()
 
         filter_bins = np.repeat(self.bins, self.stride)
@@ -472,11 +491,15 @@ class UniverseFilter(WithIDFilter):
     bins : openmc.Universe, Integral, or iterable thereof
         The Universes to tally. Either openmc.Universe objects or their
         Integral ID numbers can be used.
+    filter_id : int
+        Unique identifier for the filter
 
     Attributes
     ----------
     bins : Iterable of Integral
         openmc.Universe IDs.
+    id : int
+        Unique identifier for the filter
     num_bins : Integral
         The number of filter bins
     stride : Integral
@@ -501,11 +524,15 @@ class MaterialFilter(WithIDFilter):
     bins : openmc.Material, Integral, or iterable thereof
         The Materials to tally. Either openmc.Material objects or their
         Integral ID numbers can be used.
+    filter_id : int
+        Unique identifier for the filter
 
     Attributes
     ----------
     bins : Iterable of Integral
         openmc.Material IDs.
+    id : int
+        Unique identifier for the filter
     num_bins : Integral
         The number of filter bins
     stride : Integral
@@ -530,11 +557,15 @@ class CellFilter(WithIDFilter):
     bins : openmc.Cell, Integral, or iterable thereof
         The Cells to tally. Either openmc.Cell objects or their
         Integral ID numbers can be used.
+    filter_id : int
+        Unique identifier for the filter
 
     Attributes
     ----------
     bins : Iterable of Integral
         openmc.Cell IDs.
+    id : int
+        Unique identifier for the filter
     num_bins : Integral
         The number of filter bins
     stride : Integral
@@ -545,7 +576,40 @@ class CellFilter(WithIDFilter):
     @property
     def bins(self):
         return self._bins
+      
+    @bins.setter
+    def bins(self, bins):
+        self._smart_set_bins(bins, openmc.Cell)
 
+
+class CellFromFilter(WithIDFilter):
+    """Bins tally on which Cell the neutron came from.
+
+    Parameters
+    ----------
+    bins : openmc.Cell, Integral, or iterable thereof
+        The Cell(s) to tally. Either openmc.Cell objects or their
+        Integral ID numbers can be used.
+    filter_id : int
+        Unique identifier for the filter
+
+    Attributes
+    ----------
+    bins : Integral or Iterable of Integral
+        openmc.Cell IDs.
+    id : int
+        Unique identifier for the filter
+    num_bins : Integral
+        The number of filter bins
+    stride : Integral
+        The number of filter, nuclide and score bins within each of this
+        filter's bins.
+
+    """
+    @property
+    def bins(self):
+        return self._bins
+      
     @bins.setter
     def bins(self, bins):
         self._smart_set_bins(bins, openmc.Cell)
@@ -559,11 +623,15 @@ class CellbornFilter(WithIDFilter):
     bins : openmc.Cell, Integral, or iterable thereof
         The birth Cells to tally. Either openmc.Cell objects or their
         Integral ID numbers can be used.
+    filter_id : int
+        Unique identifier for the filter
 
     Attributes
     ----------
     bins : Iterable of Integral
         openmc.Cell IDs.
+    id : int
+        Unique identifier for the filter
     num_bins : Integral
         The number of filter bins
     stride : Integral
@@ -588,12 +656,16 @@ class SurfaceFilter(Filter):
     bins : Iterable of Integral
         Indices corresponding to which face of a mesh cell the current is
         crossing.
+    filter_id : int
+        Unique identifier for the filter
 
     Attributes
     ----------
     bins : Iterable of Integral
         Indices corresponding to which face of a mesh cell the current is
         crossing.
+    id : int
+        Unique identifier for the filter
     num_bins : Integral
         The number of filter bins
     stride : Integral
@@ -655,9 +727,7 @@ class SurfaceFilter(Filter):
         Tally.get_pandas_dataframe(), CrossFilter.get_pandas_dataframe()
 
         """
-
         # Initialize Pandas DataFrame
-        import pandas as pd
         df = pd.DataFrame()
 
         filter_bins = np.repeat(self.bins, self.stride)
@@ -677,6 +747,8 @@ class MeshFilter(Filter):
     ----------
     mesh : openmc.Mesh
         The Mesh object that events will be tallied onto
+    filter_id : int
+        Unique identifier for the filter
 
     Attributes
     ----------
@@ -684,6 +756,8 @@ class MeshFilter(Filter):
         The Mesh ID
     mesh : openmc.Mesh
         The Mesh object that events will be tallied onto
+    id : int
+        Unique identifier for the filter
     num_bins : Integral
         The number of filter bins
     stride : Integral
@@ -692,9 +766,9 @@ class MeshFilter(Filter):
 
     """
 
-    def __init__(self, mesh):
+    def __init__(self, mesh, filter_id=None):
         self.mesh = mesh
-        super(MeshFilter, self).__init__(mesh.id)
+        super(MeshFilter, self).__init__(mesh.id, filter_id)
 
     @classmethod
     def from_hdf5(cls, group, **kwargs):
@@ -709,8 +783,9 @@ class MeshFilter(Filter):
 
         mesh_id = group['bins'].value
         mesh_obj = kwargs['meshes'][mesh_id]
+        filter_id = int(group.name.split('/')[-1].lstrip('filter '))
 
-        out = cls(mesh_obj)
+        out = cls(mesh_obj, filter_id)
         out.num_bins = group['n_bins'].value
 
         return out
@@ -810,9 +885,7 @@ class MeshFilter(Filter):
         Tally.get_pandas_dataframe(), CrossFilter.get_pandas_dataframe()
 
         """
-
         # Initialize Pandas DataFrame
-        import pandas as pd
         df = pd.DataFrame()
 
         # Initialize dictionary to build Pandas Multi-index column
@@ -868,11 +941,15 @@ class RealFilter(Filter):
     ----------
     bins : Iterable of Real
         A grid of bin values.
+    filter_id : int
+        Unique identifier for the filter
 
     Attributes
     ----------
     bins : Iterable of Real
         A grid of bin values.
+    id : int
+        Unique identifier for the filter
     num_bins : Integral
         The number of filter bins
     stride : Integral
@@ -922,7 +999,7 @@ class RealFilter(Filter):
         merged_bins = np.concatenate((self.bins, other.bins))
         merged_bins = np.unique(merged_bins)
 
-        # Create a new filter with these bins
+        # Create a new filter with these bins and a new auto-generated ID
         return type(self)(sorted(merged_bins))
 
     def is_subset(self, other):
@@ -975,11 +1052,15 @@ class EnergyFilter(RealFilter):
     ----------
     bins : Iterable of Real
         A grid of energy values in eV.
+    filter_id : int
+        Unique identifier for the filter
 
     Attributes
     ----------
     bins : Iterable of Real
         A grid of energy values in eV.
+    id : int
+        Unique identifier for the filter
     num_bins : Integral
         The number of filter bins
     stride : Integral
@@ -1050,9 +1131,7 @@ class EnergyFilter(RealFilter):
         Tally.get_pandas_dataframe(), CrossFilter.get_pandas_dataframe()
 
         """
-
         # Initialize Pandas DataFrame
-        import pandas as pd
         df = pd.DataFrame()
 
         # Extract the lower and upper energy bounds, then repeat and tile
@@ -1077,11 +1156,15 @@ class EnergyoutFilter(EnergyFilter):
     ----------
     bins : Iterable of Real
         A grid of energy values in eV.
+    filter_id : int
+        Unique identifier for the filter
 
     Attributes
     ----------
     bins : Iterable of Real
         A grid of energy values in eV.
+    id : int
+        Unique identifier for the filter
     num_bins : Integral
         The number of filter bins
     stride : Integral
@@ -1135,11 +1218,15 @@ class DistribcellFilter(Filter):
     cell : openmc.Cell or Integral
         The distributed cell to tally. Either an openmc.Cell or an Integral
         cell ID number can be used.
+    filter_id : int
+        Unique identifier for the filter
 
     Attributes
     ----------
     bins : Iterable of Integral
         An iterable with one element---the ID of the distributed Cell.
+    id : int
+        Unique identifier for the filter
     num_bins : Integral
         The number of filter bins
     stride : Integral
@@ -1151,9 +1238,9 @@ class DistribcellFilter(Filter):
 
     """
 
-    def __init__(self, cell):
+    def __init__(self, cell, filter_id=None):
         self._paths = None
-        super(DistribcellFilter, self).__init__(cell)
+        super(DistribcellFilter, self).__init__(cell, filter_id)
 
     @classmethod
     def from_hdf5(cls, group, **kwargs):
@@ -1162,7 +1249,9 @@ class DistribcellFilter(Filter):
                              + cls.short_name.lower() + "' but got '"
                              + group['type'].value.decode() + " instead")
 
-        out = cls(group['bins'].value)
+        filter_id = int(group.name.split('/')[-1].lstrip('filter '))
+
+        out = cls(group['bins'].value, filter_id)
         out.num_bins = group['n_bins'].value
 
         return out
@@ -1252,9 +1341,7 @@ class DistribcellFilter(Filter):
         Tally.get_pandas_dataframe(), CrossFilter.get_pandas_dataframe()
 
         """
-
         # Initialize Pandas DataFrame
-        import pandas as pd
         df = pd.DataFrame()
 
         level_df = None
@@ -1372,6 +1459,8 @@ class MuFilter(RealFilter):
         the values will be used explicitly as grid points.  If a single Integral
         is given, the range [-1, 1] will be divided up equally into that number
         of bins.
+    filter_id : int
+        Unique identifier for the filter
 
     Attributes
     ----------
@@ -1381,6 +1470,8 @@ class MuFilter(RealFilter):
         the values will be used explicitly as grid points.  If a single Integral
         is given, the range [-1, 1] will be divided up equally into that number
         of bins.
+    id : int
+        Unique identifier for the filter
     num_bins : Integral
         The number of filter bins
     stride : Integral
@@ -1444,9 +1535,7 @@ class MuFilter(RealFilter):
         Tally.get_pandas_dataframe(), CrossFilter.get_pandas_dataframe()
 
         """
-
         # Initialize Pandas DataFrame
-        import pandas as pd
         df = pd.DataFrame()
 
         # Extract the lower and upper energy bounds, then repeat and tile
@@ -1475,6 +1564,8 @@ class PolarFilter(RealFilter):
         the values will be used explicitly as grid points.  If a single Integral
         is given, the range [0, pi] will be divided up equally into that number
         of bins.
+    filter_id : int
+        Unique identifier for the filter
 
     Attributes
     ----------
@@ -1484,6 +1575,8 @@ class PolarFilter(RealFilter):
         the values will be used explicitly as grid points.  If a single Integral
         is given, the range [0, pi] will be divided up equally into that number
         of bins.
+    id : int
+        Unique identifier for the filter
     num_bins : Integral
         The number of filter bins
     stride : Integral
@@ -1547,9 +1640,7 @@ class PolarFilter(RealFilter):
         Tally.get_pandas_dataframe(), CrossFilter.get_pandas_dataframe()
 
         """
-
         # Initialize Pandas DataFrame
-        import pandas as pd
         df = pd.DataFrame()
 
         # Extract the lower and upper angle bounds, then repeat and tile
@@ -1578,6 +1669,8 @@ class AzimuthalFilter(RealFilter):
         to the z-axis.  If an Iterable is given, the values will be used
         explicitly as grid points.  If a single Integral is given, the range
         [-pi, pi) will be divided up equally into that number of bins.
+    filter_id : int
+        Unique identifier for the filter
 
     Attributes
     ----------
@@ -1587,6 +1680,8 @@ class AzimuthalFilter(RealFilter):
         to the z-axis.  If an Iterable is given, the values will be used
         explicitly as grid points.  If a single Integral is given, the range
         [-pi, pi) will be divided up equally into that number of bins.
+    id : int
+        Unique identifier for the filter
     num_bins : Integral
         The number of filter bins
     stride : Integral
@@ -1650,9 +1745,7 @@ class AzimuthalFilter(RealFilter):
         Tally.get_pandas_dataframe(), CrossFilter.get_pandas_dataframe()
 
         """
-
         # Initialize Pandas DataFrame
-        import pandas as pd
         df = pd.DataFrame()
 
         # Extract the lower and upper angle bounds, then repeat and tile
@@ -1679,6 +1772,8 @@ class DelayedGroupFilter(Filter):
         The delayed neutron precursor groups.  For example, ENDF/B-VII.1 uses
         6 precursor groups so a tally with all groups will have bins =
         [1, 2, 3, 4, 5, 6].
+    filter_id : int
+        Unique identifier for the filter
 
     Attributes
     ----------
@@ -1686,6 +1781,8 @@ class DelayedGroupFilter(Filter):
         The delayed neutron precursor groups.  For example, ENDF/B-VII.1 uses
         6 precursor groups so a tally with all groups will have bins =
         [1, 2, 3, 4, 5, 6].
+    id : int
+        Unique identifier for the filter
     num_bins : Integral
         The number of filter bins
     stride : Integral
@@ -1730,6 +1827,8 @@ class EnergyFunctionFilter(Filter):
         A grid of energy values in eV.
     y : iterable of Real
         A grid of interpolant values in eV.
+    filter_id : int
+        Unique identifier for the filter
 
     Attributes
     ----------
@@ -1737,6 +1836,8 @@ class EnergyFunctionFilter(Filter):
         A grid of energy values in eV.
     y : iterable of Real
         A grid of interpolant values in eV.
+    id : int
+        Unique identifier for the filter
     num_bins : Integral
         The number of filter bins (always 1 for this filter)
     stride : Integral
@@ -1745,9 +1846,10 @@ class EnergyFunctionFilter(Filter):
 
     """
 
-    def __init__(self, energy, y):
+    def __init__(self, energy, y, filter_id=None):
         self.energy = energy
         self.y = y
+        self.id = filter_id
         self._stride = None
 
     def __eq__(self, other):
@@ -1785,14 +1887,16 @@ class EnergyFunctionFilter(Filter):
             return False
 
     def __hash__(self):
-        # For some reason, it seems the __hash__ method is not inherited when we
-        # overwrite __repr__.
-        return hash(repr(self))
+        string = type(self).__name__ + '\n'
+        string += '{: <16}=\t{}\n'.format('\tEnergy', self.energy)
+        string += '{: <16}=\t{}\n'.format('\tInterpolant', self.y)
+        return hash(string)
 
     def __repr__(self):
         string = type(self).__name__ + '\n'
         string += '{: <16}=\t{}\n'.format('\tEnergy', self.energy)
         string += '{: <16}=\t{}\n'.format('\tInterpolant', self.y)
+        string += '{: <16}=\t{}\n'.format('\tID', self.id)
         return string
 
     @classmethod
@@ -1804,8 +1908,9 @@ class EnergyFunctionFilter(Filter):
 
         energy = group['energy'].value
         y = group['y'].value
+        filter_id = int(group.name.split('/')[-1].lstrip('filter '))
 
-        return cls(energy, y)
+        return cls(energy, y, filter_id)
 
     @classmethod
     def from_tabulated1d(cls, tab1d):
@@ -1876,9 +1981,15 @@ class EnergyFunctionFilter(Filter):
 
     def to_xml_element(self):
         element = ET.Element('filter')
+        element.set('id', str(self.id))
         element.set('type', self.short_name.lower())
-        element.set('energy', ' '.join(str(e) for e in self.energy))
-        element.set('y', ' '.join(str(y) for y in self.y))
+
+        subelement = ET.SubElement(element, 'energy')
+        subelement.text = ' '.join(str(e) for e in self.energy)
+
+        subelement = ET.SubElement(element, 'y')
+        subelement.text = ' '.join(str(y) for y in self.y)
+
         return element
 
     def can_merge(self, other):
@@ -1926,8 +2037,6 @@ class EnergyFunctionFilter(Filter):
         Tally.get_pandas_dataframe(), CrossFilter.get_pandas_dataframe()
 
         """
-
-        import pandas as pd
         df = pd.DataFrame()
 
         # There is no clean way of sticking all the energy, y data into a

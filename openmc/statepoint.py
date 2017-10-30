@@ -9,7 +9,7 @@ import h5py
 import openmc
 import openmc.checkvalue as cv
 
-_VERSION_STATEPOINT = 16
+_VERSION_STATEPOINT = 17
 
 
 class StatePoint(object):
@@ -51,6 +51,9 @@ class StatePoint(object):
         Date and time when simulation began
     entropy : numpy.ndarray
         Shannon entropy of fission source at each batch
+    filters : dict
+        Dictionary whose keys are filter IDs and whose values are Filter
+        objects
     generations_per_batch : int
         Number of fission generations per batch
     global_tallies : numpy.ndarray of compound datatype
@@ -111,6 +114,7 @@ class StatePoint(object):
     def __init__(self, filename, autolink=True):
         self._f = h5py.File(filename, 'r')
         self._meshes = {}
+        self._filters = {}
         self._tallies = {}
         self._derivs = {}
 
@@ -119,6 +123,7 @@ class StatePoint(object):
 
         # Set flags for what data has been read
         self._meshes_read = False
+        self._filters_read = False
         self._tallies_read = False
         self._summary = None
         self._global_tallies = None
@@ -190,6 +195,20 @@ class StatePoint(object):
             return self._f['entropy'].value
         else:
             return None
+
+    @property
+    def filters(self):
+        if not self._filters_read:
+            filters_group = self._f['tallies/filters']
+
+            # Iterate over all Filters
+            for group in filters_group.values():
+                new_filter = openmc.Filter.from_hdf5(group, meshes=self.meshes)
+                self._filters[new_filter.id] = new_filter
+
+            self._filters_read = True
+
+        return self._filters
 
     @property
     def generations_per_batch(self):
@@ -337,68 +356,71 @@ class StatePoint(object):
             else:
                 tally_ids = []
 
-            # Iterate over all tallies
-            for tally_id in tally_ids:
-                group = tallies_group['tally {}'.format(tally_id)]
+            # Ignore warnings about duplicate IDs
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', openmc.IDWarning)
 
-                # Read the number of realizations
-                n_realizations = group['n_realizations'].value
+                # Iterate over all tallies
+                for tally_id in tally_ids:
+                    group = tallies_group['tally {}'.format(tally_id)]
 
-                # Create Tally object and assign basic properties
-                tally = openmc.Tally(tally_id)
-                tally._sp_filename = self._f.filename
-                tally.name = group['name'].value.decode() if 'name' in group else ''
-                tally.estimator = group['estimator'].value.decode()
-                tally.num_realizations = n_realizations
+                    # Read the number of realizations
+                    n_realizations = group['n_realizations'].value
 
-                # Read derivative information.
-                if 'derivative' in group:
-                    deriv_id = group['derivative'].value
-                    tally.derivative = self.tally_derivatives[deriv_id]
+                    # Create Tally object and assign basic properties
+                    tally = openmc.Tally(tally_id)
+                    tally._sp_filename = self._f.filename
+                    tally.name = group['name'].value.decode() if 'name' in group else ''
+                    tally.estimator = group['estimator'].value.decode()
+                    tally.num_realizations = n_realizations
 
-                # Read all filters
-                n_filters = group['n_filters'].value
-                for j in range(1, n_filters + 1):
-                    filter_group = group['filter {}'.format(j)]
-                    new_filter = openmc.Filter.from_hdf5(filter_group,
-                                                         meshes=self.meshes)
-                    tally.filters.append(new_filter)
+                    # Read derivative information.
+                    if 'derivative' in group:
+                        deriv_id = group['derivative'].value
+                        tally.derivative = self.tally_derivatives[deriv_id]
 
-                # Read nuclide bins
-                nuclide_names = group['nuclides'].value
+                    # Read all filters
+                    n_filters = group['n_filters'].value
+                    if n_filters > 0:
+                        filter_ids = group['filters'].value
+                        filters_group = self._f['tallies/filters']
+                        for filter_id in filter_ids:
+                            filter_group = filters_group['filter {}'.format(
+                                filter_id)]
+                            new_filter = openmc.Filter.from_hdf5(
+                                filter_group, meshes=self.meshes)
+                            tally.filters.append(new_filter)
 
-                # Add all nuclides to the Tally
-                for name in nuclide_names:
-                    nuclide = openmc.Nuclide(name.decode().strip())
-                    tally.nuclides.append(nuclide)
+                    # Read nuclide bins
+                    nuclide_names = group['nuclides'].value
 
-                scores = group['score_bins'].value
-                n_score_bins = group['n_score_bins'].value
+                    # Add all nuclides to the Tally
+                    for name in nuclide_names:
+                        nuclide = openmc.Nuclide(name.decode().strip())
+                        tally.nuclides.append(nuclide)
 
-                # Compute and set the filter strides
-                for i in range(n_filters):
-                    tally_filter = tally.filters[i]
-                    tally_filter.stride = n_score_bins * len(nuclide_names)
+                    scores = group['score_bins'].value
+                    n_score_bins = group['n_score_bins'].value
 
-                    for j in range(i+1, n_filters):
-                        tally_filter.stride *= tally.filters[j].num_bins
+                    # Read scattering moment order strings (e.g., P3, Y1,2, etc.)
+                    moments = group['moment_orders'].value
 
-                # Read scattering moment order strings (e.g., P3, Y1,2, etc.)
-                moments = group['moment_orders'].value
+                    # Add the scores to the Tally
+                    for j, score in enumerate(scores):
+                        score = score.decode()
 
-                # Add the scores to the Tally
-                for j, score in enumerate(scores):
-                    score = score.decode()
+                        # If this is a moment, use generic moment order
+                        pattern = r'-n$|-pn$|-yn$'
+                        score = re.sub(pattern, '-' + moments[j].decode(), score)
 
-                    # If this is a moment, use generic moment order
-                    pattern = r'-n$|-pn$|-yn$'
-                    score = re.sub(pattern, '-' + moments[j].decode(), score)
+                        tally.scores.append(score)
 
-                    tally.scores.append(score)
+                    # Compute and set the filter strides
+                    tally._update_filter_strides()
 
-                # Add Tally to the global dictionary of all Tallies
-                tally.sparse = self.sparse
-                self._tallies[tally_id] = tally
+                    # Add Tally to the global dictionary of all Tallies
+                    tally.sparse = self.sparse
+                    self._tallies[tally_id] = tally
 
             self._tallies_read = True
 

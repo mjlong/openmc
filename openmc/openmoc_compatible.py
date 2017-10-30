@@ -172,7 +172,9 @@ def get_openmoc_surface(openmc_surface):
         B = openmc_surface.b
         C = openmc_surface.c
         D = openmc_surface.d
-        openmoc_surface = openmoc.Plane(A, B, C, D, surface_id, name)
+
+        # OpenMOC uses the opposite sign on D
+        openmoc_surface = openmoc.Plane(A, B, C, -D, surface_id, name)
 
     elif openmc_surface.type == 'x-plane':
         x0 = openmc_surface.x0
@@ -253,7 +255,9 @@ def get_openmc_surface(openmoc_surface):
         B = openmoc_surface.getB()
         C = openmoc_surface.getC()
         D = openmoc_surface.getD()
-        openmc_surface = openmc.Plane(surface_id, boundary, A, B, C, D, name)
+
+        # OpenMOC uses the opposite sign on D
+        openmc_surface = openmc.Plane(surface_id, boundary, A, B, C, -D, name)
 
     elif openmoc_surface.getSurfaceType() == openmoc.XPLANE:
         openmoc_surface = openmoc.castSurfaceToXPlane(openmoc_surface)
@@ -367,11 +371,11 @@ def get_openmoc_region(openmc_region):
             openmoc.Halfspace(halfspace, get_openmoc_surface(surface))
     elif isinstance(openmc_region, openmc.Intersection):
         openmoc_region = openmoc.Intersection()
-        for openmc_node in openmc_region.nodes:
+        for openmc_node in openmc_region:
             openmoc_region.addNode(get_openmoc_region(openmc_node))
     elif isinstance(openmc_region, openmc.Union):
         openmoc_region = openmoc.Union()
-        for openmc_node in openmc_region.nodes:
+        for openmc_node in openmc_region:
             openmoc_region.addNode(get_openmoc_region(openmc_node))
     elif isinstance(openmc_region, openmc.Complement):
         openmoc_region = openmoc.Complement()
@@ -407,12 +411,12 @@ def get_openmc_region(openmoc_region):
         openmc_region = openmc.Intersection()
         for openmoc_node in openmoc_region.getNodes():
             openmc_node = get_openmc_region(openmoc_node)
-            openmc_region.nodes.append(openmc_node)
+            openmc_region.append(openmc_node)
     elif openmoc_region.getRegionType() == openmoc.UNION:
         openmc_region = openmc.Union()
         for openmoc_node in openmoc_region.getNodes():
             openmc_node = get_openmc_region(openmoc_node)
-            openmc_region.nodes.append(openmc_node)
+            openmc_region.append(openmc_node)
     elif openmoc_region.getRegionType() == openmoc.COMPLEMENT:
         openmoc_nodes = openmoc_region.getNodes()
         openmc_node = get_openmc_region(openmoc_nodes[0])
@@ -708,8 +712,7 @@ def get_openmc_lattice(openmoc_lattice):
                 universe_array[x][y][z] = \
                     unique_universes[universe_id]
 
-    universe_array = np.swapaxes(universe_array, 0, 1)
-    universe_array = universe_array[::-1, :, :]
+    universe_array = np.swapaxes(universe_array, 0, 2)
 
     # Convert axially infinite 3D OpenMOC lattice to a 2D OpenMC lattice
     if width[2] == np.finfo(np.float64).max:

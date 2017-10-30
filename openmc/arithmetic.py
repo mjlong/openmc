@@ -4,6 +4,7 @@ from collections import Iterable
 
 from six import string_types
 import numpy as np
+import pandas as pd
 
 import openmc
 from openmc.filter import _FILTER_TYPES
@@ -107,9 +108,9 @@ class CrossNuclide(object):
 
     Parameters
     ----------
-    left_nuclide : Nuclide or CrossNuclide
+    left_nuclide : openmc.Nuclide or CrossNuclide
         The left nuclide in the outer product
-    right_nuclide : Nuclide or CrossNuclide
+    right_nuclide : openmc.Nuclide or CrossNuclide
         The right nuclide in the outer product
     binary_op : str
         The tally arithmetic binary operator (e.g., '+', '-', etc.) used to
@@ -117,9 +118,9 @@ class CrossNuclide(object):
 
     Attributes
     ----------
-    left_nuclide : Nuclide or CrossNuclide
+    left_nuclide : openmc.Nuclide or CrossNuclide
         The left nuclide in the outer product
-    right_nuclide : Nuclide or CrossNuclide
+    right_nuclide : openmc.Nuclide or CrossNuclide
         The right nuclide in the outer product
     binary_op : str
         The tally arithmetic binary operator (e.g., '+', '-', etc.) used to
@@ -509,7 +510,7 @@ class AggregateNuclide(object):
 
     Parameters
     ----------
-    nuclides : Iterable of str or Nuclide or CrossNuclide
+    nuclides : Iterable of str or openmc.Nuclide or CrossNuclide
         The nuclides included in the aggregation
     aggregate_op : str
         The tally aggregation operator (e.g., 'sum', 'avg', etc.) used
@@ -517,7 +518,7 @@ class AggregateNuclide(object):
 
     Attributes
     ----------
-    nuclides : Iterable of str or Nuclide or CrossNuclide
+    nuclides : Iterable of str or openmc.Nuclide or CrossNuclide
         The nuclides included in the aggregation
     aggregate_op : str
         The tally aggregation operator (e.g., 'sum', 'avg', etc.) used
@@ -786,9 +787,6 @@ class AggregateFilter(object):
         CrossFilter.get_pandas_dataframe()
 
         """
-
-        import pandas as pd
-
         # Create NumPy array of the bin tuples for repeating / tiling
         filter_bins = np.empty(self.num_bins, dtype=tuple)
         for i, bin in enumerate(self.bins):

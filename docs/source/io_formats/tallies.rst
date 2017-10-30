@@ -18,8 +18,8 @@ filters can be used for a tally. The following types of filter are available:
 cell, universe, material, surface, birth region, pre-collision energy,
 post-collision energy, and an arbitrary structured mesh.
 
-The three valid elements in the tallies.xml file are ``<tally>``, ``<mesh>``,
-and ``<assume_separate>``.
+The five valid elements in the tallies.xml file are ``<tally>``, ``<filter>``,
+``<mesh>``, ``<derivative>``, and ``<assume_separate>``.
 
 .. _tally:
 
@@ -35,42 +35,8 @@ The ``<tally>`` element accepts the following sub-elements:
 
     *Default*: ""
 
-  :filter:
-    Specify a filter that modifies tally behavior. Most tallies (e.g. ``cell``,
-    ``energy``, and ``material``) restrict the tally so that only particles
-    within certain regions of phase space contribute to the tally.  Others
-    (e.g. ``delayedgroup`` and ``energyfunction``) can apply some other function
-    to the scored values. This element and its attributes/sub-elements are
-    described below.
-
-    .. note::
-        You may specify zero, one, or multiple filters to apply to the tally. To
-        specify multiple filters, you must use multiple ``<filter>`` elements.
-
-    The ``filter`` element has the following attributes/sub-elements:
-
-      :type:
-        The type of the filter. Accepted options are "cell", "cellborn",
-        "material", "universe", "energy", "energyout", "mu", "polar",
-        "azimuthal", "mesh", "distribcell", "delayedgroup", and
-        "energyfunction".
-
-      :bins:
-         A description of the bins for each type of filter can be found in
-         :ref:`filter_types`.
-
-      :energy:
-        ``energyfunction`` filters multiply tally scores by an arbitrary
-        function. The function is described by a piecewise linear-linear set of
-        (energy, y) values. This entry specifies the energy values. The function
-        will be evaluated as zero outside of the bounds of this energy grid.
-        (Only used for ``energyfunction`` filters)
-
-      :y:
-        ``energyfunction`` filters multiply tally scores by an arbitrary
-        function. The function is described by a piecewise linear-linear set of
-        (energy, y) values. This entry specifies the y values. (Only used
-        for ``energyfunction`` filters)
+  :filters:
+    A space-separated list of the IDs of ``filter`` elements.
 
   :nuclides:
     If specified, the scores listed will be for particular nuclides, not the
@@ -144,6 +110,41 @@ The ``<tally>`` element accepts the following sub-elements:
 
      *Default*: None
 
+
+--------------------
+``<filter>`` Element
+--------------------
+
+Filters can be used to modify tally behavior. Most tallies (e.g. ``cell``,
+``energy``, and ``material``) restrict the tally so that only particles
+within certain regions of phase space contribute to the tally.  Others
+(e.g. ``delayedgroup`` and ``energyfunction``) can apply some other function
+to the scored values. The ``filter`` element has the following
+attributes/sub-elements:
+
+  :type:
+    The type of the filter. Accepted options are "cell", "cellfrom", 
+    "cellborn", "surface", "material", "universe", "energy", "energyout", "mu", 
+    "polar", "azimuthal", "mesh", "distribcell", "delayedgroup", and
+    "energyfunction".
+
+  :bins:
+     A description of the bins for each type of filter can be found in
+     :ref:`filter_types`.
+
+  :energy:
+    ``energyfunction`` filters multiply tally scores by an arbitrary
+    function. The function is described by a piecewise linear-linear set of
+    (energy, y) values. This entry specifies the energy values. The function
+    will be evaluated as zero outside of the bounds of this energy grid.
+    (Only used for ``energyfunction`` filters)
+
+  :y:
+    ``energyfunction`` filters multiply tally scores by an arbitrary
+    function. The function is described by a piecewise linear-linear set of
+    (energy, y) values. This entry specifies the y values. (Only used
+    for ``energyfunction`` filters)
+
 .. _filter_types:
 
 Filter Types
@@ -153,14 +154,31 @@ For each filter type, the following table describes what the ``bins`` attribute
 should be set to:
 
 :cell:
-  A list of unique IDs for cells in which the tally should be accumulated.
+  A list of unique IDs for cells in which the tally should be 
+  accumulated.
+
+:surface:
+  This filter allows the tally to be scored when crossing a surface. A list of 
+  surface IDs should be given. By default, net currents are tallied, and to 
+  tally a partial current from one cell to another, this should be used in 
+  combination with a cell or cell_from filter that defines the other cell.
+  This filter should not be used in combination with a meshfilter.
+
+:cellfrom:
+  This filter allows the tally to be scored when crossing a surface and the 
+  particle came from a specified cell. A list of cell IDs should be 
+  given.
+  To tally a partial current from a cell to another, this filter should be 
+  used in combination with a cell filter, to define the other cell.
+  This filter should not be used in combination with a meshfilter.
 
 :cellborn:
   This filter allows the tally to be scored to only when particles were
-  originally born in a specified cell. A list of cell IDs should be given.
+  originally born in a specified cell. A list of cell IDs should be 
+  given.
 
 :material:
-  A list of unique IDs for matreials in which the tally should be accumulated.
+  A list of unique IDs for materials in which the tally should be accumulated.
 
 :universe:
   A list of unique IDs for universes in which the tally should be accumulated.

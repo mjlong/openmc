@@ -4,22 +4,22 @@ from collections import Iterable, MutableSequence
 import copy
 import re
 from functools import partial
-import itertools
+from itertools import product
 from numbers import Integral, Real
 import warnings
 from xml.etree import ElementTree as ET
 
 from six import string_types
 import numpy as np
+import pandas as pd
+import scipy.sparse as sps
 import h5py
 
 import openmc
 import openmc.checkvalue as cv
 from openmc.clean_xml import clean_xml_indentation
+from .mixin import IDManagerMixin
 
-
-# "Static" variable for auto-generated Tally IDs
-AUTO_TALLY_ID = 10000
 
 # The tally arithmetic product types. The tensor product performs the full
 # cross product of the data in two tallies with respect to a specified axis
@@ -39,13 +39,7 @@ _FILTER_CLASSES = (openmc.Filter, openmc.CrossFilter, openmc.AggregateFilter)
 ESTIMATOR_TYPES = ['tracklength', 'collision', 'analog']
 
 
-def reset_auto_tally_id():
-    """Reset counter for auto-generated tally IDs."""
-    global AUTO_TALLY_ID
-    AUTO_TALLY_ID = 10000
-
-
-class Tally(object):
+class Tally(IDManagerMixin):
     """A tally defined by a set of scores that are accumulated for a list of
     nuclides given a set of filters.
 
@@ -106,6 +100,9 @@ class Tally(object):
         A material perturbation derivative to apply to all scores in the tally.
 
     """
+
+    next_id = 1
+    used_ids = set()
 
     def __init__(self, tally_id=None, name=''):
         # Initialize Tally class attributes
@@ -203,10 +200,6 @@ class Tally(object):
         return string
 
     @property
-    def id(self):
-        return self._id
-
-    @property
     def name(self):
         return self._name
 
@@ -295,8 +288,6 @@ class Tally(object):
 
             # Convert NumPy arrays to SciPy sparse LIL matrices
             if self.sparse:
-                import scipy.sparse as sps
-
                 self._sum = \
                     sps.lil_matrix(self._sum.flatten(), self._sum.shape)
                 self._sum_sq = \
@@ -337,8 +328,6 @@ class Tally(object):
 
             # Convert NumPy array to SciPy sparse LIL matrix
             if self.sparse:
-                import scipy.sparse as sps
-
                 self._mean = \
                     sps.lil_matrix(self._mean.flatten(), self._mean.shape)
 
@@ -361,8 +350,6 @@ class Tally(object):
 
             # Convert NumPy array to SciPy sparse LIL matrix
             if self.sparse:
-                import scipy.sparse as sps
-
                 self._std_dev = \
                     sps.lil_matrix(self._std_dev.flatten(), self._std_dev.shape)
 
@@ -419,17 +406,6 @@ class Tally(object):
                       'defined using the triggers property directly.',
                       DeprecationWarning)
         self.triggers.append(trigger)
-
-    @id.setter
-    def id(self, tally_id):
-        if tally_id is None:
-            global AUTO_TALLY_ID
-            self._id = AUTO_TALLY_ID
-            AUTO_TALLY_ID += 1
-        else:
-            cv.check_type('tally ID', tally_id, Integral)
-            cv.check_greater_than('tally ID', tally_id, 0, equality=True)
-            self._id = tally_id
 
     @name.setter
     def name(self, name):
@@ -526,7 +502,7 @@ class Tally(object):
 
         Parameters
         ----------
-        nuclide : str, Nuclide, CrossNuclide or AggregateNuclide
+        nuclide : str, openmc.Nuclide, CrossNuclide or AggregateNuclide
             Nuclide to add to the tally. The nuclide should be a Nuclide object
             when a user is adding nuclides to a Tally for input file generation.
             The nuclide is a str when a Tally is created from a StatePoint file
@@ -608,8 +584,6 @@ class Tally(object):
 
         # Convert NumPy arrays to SciPy sparse LIL matrices
         if sparse and not self.sparse:
-            import scipy.sparse as sps
-
             if self._sum is not None:
                 self._sum = \
                     sps.lil_matrix(self._sum.flatten(), self._sum.shape)
@@ -1076,8 +1050,9 @@ class Tally(object):
             element.set("name", self.name)
 
         # Optional Tally filters
-        for self_filter in self.filters:
-            element.append(self_filter.to_xml_element())
+        if len(self.filters) > 0:
+            subelement = ET.SubElement(element, "filters")
+            subelement.text = ' '.join(str(f.id) for f in self.filters)
 
         # Optional Nuclides
         if len(self.nuclides) > 0:
@@ -1354,7 +1329,7 @@ class Tally(object):
                     if isinstance(self_filter, openmc.MeshFilter):
                         dimension = self_filter.mesh.dimension
                         xyz = [range(1, x+1) for x in dimension]
-                        bins = list(itertools.product(*xyz))
+                        bins = list(product(*xyz))
 
                     # Create list of 2-tuples for energy boundary bins
                     elif isinstance(self_filter, (openmc.EnergyFilter,
@@ -1389,7 +1364,7 @@ class Tally(object):
                     indices *= self_filter.num_bins
 
             # Apply outer product sum between all filter bin indices
-            filter_indices = list(map(sum, itertools.product(*filter_indices)))
+            filter_indices = list(map(sum, product(*filter_indices)))
 
         # If user did not specify any specific Filters, use them all
         else:
@@ -1609,7 +1584,6 @@ class Tally(object):
             raise KeyError(msg)
 
         # Initialize a pandas dataframe for the tally data
-        import pandas as pd
         df = pd.DataFrame()
 
         # Find the total length of the tally data array
@@ -1906,7 +1880,7 @@ class Tally(object):
                 new_tally.filters.append(self_filter)
         else:
             all_filters = [self_copy.filters, other_copy.filters]
-            for self_filter, other_filter in itertools.product(*all_filters):
+            for self_filter, other_filter in product(*all_filters):
                 new_filter = openmc.CrossFilter(self_filter, other_filter,
                                                 binary_op)
                 new_tally.filters.append(new_filter)
@@ -1917,20 +1891,31 @@ class Tally(object):
                 new_tally.nuclides.append(self_nuclide)
         else:
             all_nuclides = [self_copy.nuclides, other_copy.nuclides]
-            for self_nuclide, other_nuclide in itertools.product(*all_nuclides):
-                new_nuclide = \
-                    openmc.CrossNuclide(self_nuclide, other_nuclide, binary_op)
+            for self_nuclide, other_nuclide in product(*all_nuclides):
+                new_nuclide = openmc.CrossNuclide(self_nuclide, other_nuclide,
+                                                  binary_op)
                 new_tally.nuclides.append(new_nuclide)
+
+        # Define helper function that handles score units appropriately
+        # depending on the binary operator
+        def cross_score(score1, score2, binary_op):
+            if binary_op == '+' or binary_op == '-':
+                if score1 == score2:
+                    return score1
+                else:
+                    return openmc.CrossScore(score1, score2, binary_op)
+            else:
+                return openmc.CrossScore(score1, score2, binary_op)
 
         # Add scores to the new tally
         if score_product == 'entrywise':
             for self_score in self_copy.scores:
-                new_tally.scores.append(self_score)
+                new_score = cross_score(self_score, self_score, binary_op)
+                new_tally.scores.append(new_score)
         else:
             all_scores = [self_copy.scores, other_copy.scores]
-            for self_score, other_score in itertools.product(*all_scores):
-                new_score = openmc.CrossScore(self_score, other_score,
-                                              binary_op)
+            for self_score, other_score in product(*all_scores):
+                new_score = cross_score(self_score, other_score, binary_op)
                 new_tally.scores.append(new_score)
 
         # Update the new tally's filter strides
@@ -2168,7 +2153,7 @@ class Tally(object):
         std_dev = {}
 
         # Store the data from the misaligned structure
-        for i, (bin1, bin2) in enumerate(itertools.product(filter1_bins, filter2_bins)):
+        for i, (bin1, bin2) in enumerate(product(filter1_bins, filter2_bins)):
             filter_bins = [(bin1,), (bin2,)]
 
             if self.mean is not None:
@@ -2189,7 +2174,7 @@ class Tally(object):
         self._update_filter_strides()
 
         # Realign the data
-        for i, (bin1, bin2) in enumerate(itertools.product(filter1_bins, filter2_bins)):
+        for i, (bin1, bin2) in enumerate(product(filter1_bins, filter2_bins)):
             filter_bins = [(bin1,), (bin2,)]
             indices = self.get_filter_indices(filters, filter_bins)
 
@@ -3522,6 +3507,18 @@ class Tallies(cv.CheckedList):
                         root_element.append(f.mesh.to_xml_element())
                         already_written.add(f.mesh)
 
+    def _create_filter_subelements(self, root_element):
+        already_written = dict()
+        for tally in self:
+            for f in tally.filters:
+                if f not in already_written:
+                    root_element.append(f.to_xml_element())
+                    already_written[f] = f.id
+                else:
+                    # Set the IDs of identical filters with different
+                    # user-defined IDs to the same value
+                    f.id = already_written[f]
+
     def _create_derivative_subelements(self, root_element):
         # Get a list of all derivatives referenced in a tally.
         derivs = []
@@ -3546,6 +3543,7 @@ class Tallies(cv.CheckedList):
 
         root_element = ET.Element("tallies")
         self._create_mesh_subelements(root_element)
+        self._create_filter_subelements(root_element)
         self._create_tally_subelements(root_element)
         self._create_derivative_subelements(root_element)
 

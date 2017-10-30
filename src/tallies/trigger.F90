@@ -1,19 +1,24 @@
 module trigger
 
+  use, intrinsic :: ISO_C_BINDING
+
 #ifdef MPI
   use message_passing
 #endif
 
   use constants
-  use global
+  use eigenvalue,     only: openmc_get_keff
   use string,         only: to_str
   use output,         only: warning, write_message
-  use mesh,           only: bin_to_mesh_indices
-  use mesh_header,    only: RegularMesh
+  use mesh_header,    only: RegularMesh, meshes
   use message_passing, only: master
-  use trigger_header, only: TriggerObject
+  use settings
+  use simulation_header
+  use trigger_header
   use tally,          only: TallyObject
-  use tally_filter,   only: MeshFilter
+  use tally_filter_mesh, only: MeshFilter
+  use tally_filter_header, only: filter_matches, filters
+  use tally_header, only: tallies, n_tallies
 
   implicit none
 
@@ -94,18 +99,19 @@ contains
     character(len=52), intent(inout) :: name  ! "eigenvalue" or tally score
 
     integer :: i              ! index in tallies array
+    integer :: j              ! index in tally filters
     integer :: n              ! loop index for nuclides
     integer :: s              ! loop index for triggers
     integer :: filter_index   ! index in results array for filters
     integer :: score_index    ! scoring bin index
     integer :: n_order        ! loop index for moment orders
     integer :: nm_order       ! loop index for Ynm moment orders
+    integer(C_INT) :: err
     real(8) :: uncertainty    ! trigger uncertainty
     real(8) :: std_dev = ZERO ! trigger standard deviation
     real(8) :: rel_err = ZERO ! trigger relative error
     real(8) :: ratio          ! ratio of the uncertainty/trigger threshold
-    type(TallyObject), pointer     :: t               ! tally pointer
-    type(TriggerObject), pointer   :: trigger         ! tally trigger
+    real(C_DOUBLE) :: k_combined(2)
 
     ! Initialize tally trigger maximum uncertainty ratio to zero
     max_ratio = 0
@@ -118,6 +124,7 @@ contains
       ! Check eigenvalue trigger
       if (run_mode == MODE_EIGENVALUE) then
         if (keff_trigger % trigger_type /= 0) then
+          err = openmc_get_keff(k_combined)
           select case (keff_trigger % trigger_type)
           case(VARIANCE)
             uncertainty = k_combined(2) ** 2
@@ -145,7 +152,7 @@ contains
 
       ! Compute uncertainties for all tallies, scores with triggers
       TALLY_LOOP: do i = 1, n_tallies
-        t => tallies(i)
+        associate (t => tallies(i) % obj)
 
         ! Cycle through if only one batch has been simumlate
         if (t % n_realizations == 1) then
@@ -153,23 +160,26 @@ contains
         end if
 
         TRIGGER_LOOP: do s = 1, t % n_triggers
-          trigger => t % triggers(s)
+          associate (trigger => t % triggers(s))
 
           ! Initialize trigger uncertainties to zero
           trigger % std_dev = ZERO
           trigger % rel_err = ZERO
           trigger % variance = ZERO
 
-          ! Surface current tally triggers require special treatment
-          if (t % type == TALLY_SURFACE_CURRENT) then
+          ! Mesh current tally triggers require special treatment
+          if (t % type == TALLY_MESH_CURRENT) then
             call compute_tally_current(t, trigger)
 
           else
 
             ! Initialize bins, filter level
-            matching_bins(1:size(t % filters)) = 0
+            do j = 1, size(t % filter)
+              call filter_matches(t % filter(j)) % bins % clear()
+              call filter_matches(t % filter(j)) % bins % push_back(0)
+            end do
 
-            FILTER_LOOP: do filter_index = 1, t % total_filter_bins
+            FILTER_LOOP: do filter_index = 1, t % n_filter_bins
 
               ! Initialize score index
               score_index = trigger % score_index
@@ -267,23 +277,28 @@ contains
                   end if
                 end if
               end do NUCLIDE_LOOP
-              if (size(t % filters) == 0) exit FILTER_LOOP
+              if (size(t % filter) == 0) exit FILTER_LOOP
             end do FILTER_LOOP
           end if
+          end associate
         end do TRIGGER_LOOP
+        end associate
       end do TALLY_LOOP
     end if
   end subroutine check_tally_triggers
 
 
 !===============================================================================
-! COMPUTE_TALLY_CURRENT computes the current for a surface current tally with
+! COMPUTE_TALLY_CURRENT computes the current for a mesh current tally with
 ! precision trigger(s).
 !===============================================================================
 
   subroutine compute_tally_current(t, trigger)
+    type(TallyObject),   intent(in)    :: t        ! mesh current tally
+    type(TriggerObject), intent(inout) :: trigger  ! mesh current tally trigger
 
     integer :: i                    ! mesh index
+    integer :: j                    ! loop index for tally filters
     integer :: ijk(3)               ! indices of mesh cells
     integer :: n_dim                ! number of mesh dimensions
     integer :: n_cells              ! number of mesh cells
@@ -296,26 +311,28 @@ contains
     logical :: print_ebin           ! should incoming energy bin be displayed?
     real(8) :: rel_err  = ZERO      ! temporary relative error of result
     real(8) :: std_dev  = ZERO      ! temporary standard deviration of result
-    type(TallyObject), pointer    :: t        ! surface current tally
-    type(TriggerObject)           :: trigger  ! surface current tally trigger
     type(RegularMesh), pointer :: m        ! surface current mesh
 
     ! Get pointer to mesh
-    i_filter_mesh = t % find_filter(FILTER_MESH)
-    i_filter_surf = t % find_filter(FILTER_SURFACE)
-    select type(filt => t % filters(i_filter_mesh) % obj)
+    i_filter_mesh = t % filter(t % find_filter(FILTER_MESH))
+    i_filter_surf = t % filter(t % find_filter(FILTER_SURFACE))
+    select type(filt => filters(i_filter_mesh) % obj)
     type is (MeshFilter)
       m => meshes(filt % mesh)
     end select
 
     ! initialize bins array
-    matching_bins(1:size(t % filters)) = 1
+    do j = 1, size(t % filter)
+      call filter_matches(t % filter(j)) % bins % clear()
+      call filter_matches(t % filter(j)) % bins % push_back(1)
+    end do
 
     ! determine how many energyin bins there are
     i_filter_ein = t % find_filter(FILTER_ENERGYIN)
     if (i_filter_ein > 0) then
       print_ebin = .true.
-      n = t % filters(i_filter_ein) % obj % n_bins
+      n = filters(t % filter(i_filter_ein)) % obj % n_bins
+      i_filter_ein = t % filter(i_filter_ein)
     else
       print_ebin = .false.
       n = 1
@@ -329,19 +346,22 @@ contains
     do i = 1, n_cells
 
       ! Get the indices for this cell
-      call bin_to_mesh_indices(m, i, ijk)
-      matching_bins(i_filter_mesh) = i
+      call m % get_indices_from_bin(i, ijk)
+      filter_matches(i_filter_mesh) % bins % data(1) = i
 
       do l = 1, n
 
         if (print_ebin) then
-          matching_bins(i_filter_ein) = l
+          filter_matches(i_filter_ein) % bins % data(1) = l
         end if
 
         ! Left Surface
-        matching_bins(i_filter_surf) = OUT_LEFT
-        filter_index = &
-             sum((matching_bins(1:size(t % filters)) - 1) * t % stride) + 1
+        filter_matches(i_filter_surf) % bins % data(1) = OUT_LEFT
+        filter_index = 1
+        do j = 1, size(t % filter)
+          filter_index = filter_index + (filter_matches(t % filter(j)) % &
+               bins % data(1) - 1) * t % stride(j)
+        end do
         call get_trigger_uncertainty(std_dev, rel_err, 1, filter_index, t)
         if (trigger % std_dev < std_dev) then
           trigger % std_dev = std_dev
@@ -352,9 +372,12 @@ contains
         trigger % variance = std_dev**2
 
         ! Right Surface
-        matching_bins(i_filter_surf) = OUT_RIGHT
-        filter_index = &
-             sum((matching_bins(1:size(t % filters)) - 1) * t % stride) + 1
+        filter_matches(i_filter_surf) % bins % data(1) = OUT_RIGHT
+        filter_index = 1
+        do j = 1, size(t % filter)
+          filter_index = filter_index + (filter_matches(t % filter(j)) % &
+               bins % data(1) - 1) * t % stride(j)
+        end do
         call get_trigger_uncertainty(std_dev, rel_err, 1, filter_index, t)
         if (trigger % std_dev < std_dev) then
           trigger % std_dev = std_dev
@@ -365,9 +388,12 @@ contains
         trigger % variance = trigger % std_dev**2
 
         ! Back Surface
-        matching_bins(i_filter_surf) = OUT_BACK
-        filter_index = &
-             sum((matching_bins(1:size(t % filters)) - 1) * t % stride) + 1
+        filter_matches(i_filter_surf) % bins % data(1) = OUT_BACK
+        filter_index = 1
+        do j = 1, size(t % filter)
+          filter_index = filter_index + (filter_matches(t % filter(j)) % &
+               bins % data(1) - 1) * t % stride(j)
+        end do
         call get_trigger_uncertainty(std_dev, rel_err, 1, filter_index, t)
         if (trigger % std_dev < std_dev) then
           trigger % std_dev = std_dev
@@ -378,9 +404,12 @@ contains
         trigger % variance = trigger % std_dev**2
 
         ! Front Surface
-        matching_bins(i_filter_surf) = OUT_FRONT
-        filter_index = &
-             sum((matching_bins(1:size(t % filters)) - 1) * t % stride) + 1
+        filter_matches(i_filter_surf) % bins % data(1) = OUT_FRONT
+        filter_index = 1
+        do j = 1, size(t % filter)
+          filter_index = filter_index + (filter_matches(t % filter(j)) % &
+               bins % data(1) - 1) * t % stride(j)
+        end do
         call get_trigger_uncertainty(std_dev, rel_err, 1, filter_index, t)
         if (trigger % std_dev < std_dev) then
           trigger % std_dev = std_dev
@@ -391,9 +420,12 @@ contains
         trigger % variance = trigger % std_dev**2
 
         ! Bottom Surface
-        matching_bins(i_filter_surf) = OUT_BOTTOM
-        filter_index = &
-             sum((matching_bins(1:size(t % filters)) - 1) * t % stride) + 1
+        filter_matches(i_filter_surf) % bins % data(1) = OUT_BOTTOM
+        filter_index = 1
+        do j = 1, size(t % filter)
+          filter_index = filter_index + (filter_matches(t % filter(j)) % &
+               bins % data(1) - 1) * t % stride(j)
+        end do
         call get_trigger_uncertainty(std_dev, rel_err, 1, filter_index, t)
         if (trigger % std_dev < std_dev) then
           trigger % std_dev = std_dev
@@ -404,9 +436,12 @@ contains
         trigger % variance = trigger % std_dev**2
 
         ! Top Surface
-        matching_bins(i_filter_surf) = OUT_TOP
-        filter_index = &
-             sum((matching_bins(1:size(t % filters)) - 1) * t % stride) + 1
+        filter_matches(i_filter_surf) % bins % data(1) = OUT_TOP
+        filter_index = 1
+        do j = 1, size(t % filter)
+          filter_index = filter_index + (filter_matches(t % filter(j)) % &
+               bins % data(1) - 1) * t % stride(j)
+        end do
         call get_trigger_uncertainty(std_dev, rel_err, 1, filter_index, t)
         if (trigger % std_dev < std_dev) then
           trigger % std_dev = std_dev

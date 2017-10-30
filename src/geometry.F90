@@ -2,16 +2,17 @@ module geometry
 
   use constants
   use error,                  only: fatal_error, warning
-  use geometry_header,        only: Cell, Universe, Lattice, &
-                                    &RectLattice, HexLattice
-  use global
+  use geometry_header
   use output,                 only: write_message
   use particle_header,        only: LocalCoord, Particle
   use particle_restart_write, only: write_particle_restart
+  use simulation_header
+  use settings
   use surface_header
   use stl_vector,             only: VectorInt
   use string,                 only: to_str
   use tally,                  only: score_surface_current
+  use tally_header
 
   implicit none
 
@@ -198,11 +199,9 @@ contains
     integer :: distribcell_index
     integer :: i_xyz(3)             ! indices in lattice
     integer :: n                    ! number of cells to search
-    integer :: index_cell           ! index in cells array
+    integer :: i_cell               ! index in cells array
+    integer :: i_universe           ! index in universes array
     logical :: use_search_cells     ! use cells provided as argument
-    type(Cell),     pointer :: c    ! pointer to cell
-    class(Lattice), pointer :: lat  ! pointer to lattice
-    type(Universe), pointer :: univ ! universe to search in
 
     do j = p % n_coord + 1, MAX_COORD
       call p % coord(j) % reset()
@@ -210,172 +209,174 @@ contains
     j = p % n_coord
 
     ! set size of list to search
+    i_universe = p % coord(j) % universe
     if (present(search_cells)) then
       use_search_cells = .true.
       n = size(search_cells)
     else
       use_search_cells = .false.
-      univ => universes(p % coord(j) % universe)
-      n = size(univ % cells)
+      n = size(universes(i_universe) % cells)
     end if
 
+    found = .false.
     CELL_LOOP: do i = 1, n
       ! select cells based on whether we are searching a universe or a provided
       ! list of cells (this would be for lists of neighbor cells)
       if (use_search_cells) then
-        index_cell = search_cells(i)
+        i_cell = search_cells(i)
         ! check to make sure search cell is in same universe
-        if (cells(index_cell) % universe /= p % coord(j) % universe) cycle
+        if (cells(i_cell) % universe /= i_universe) cycle
       else
-        index_cell = univ % cells(i)
+        i_cell = universes(i_universe) % cells(i)
       end if
-
-      ! get pointer to cell
-      c => cells(index_cell)
 
       ! Move on to the next cell if the particle is not inside this cell
-      if (.not. cell_contains(c, p)) cycle
+      if (cell_contains(cells(i_cell), p)) then
+        ! Set cell on this level
+        p % coord(j) % cell = i_cell
 
-      ! Set cell on this level
-      p % coord(j) % cell = index_cell
+        ! Show cell information on trace
+        if (verbosity >= 10 .or. trace) then
+          call write_message("    Entering cell " // trim(to_str(&
+               cells(i_cell) % id)))
+        end if
 
-      ! Show cell information on trace
-      if (verbosity >= 10 .or. trace) then
-        call write_message("    Entering cell " // trim(to_str(c % id)))
+        found = .true.
+        exit
       end if
-
-      CELL_TYPE: if (c % type == FILL_MATERIAL) then
-        ! ======================================================================
-        ! AT LOWEST UNIVERSE, TERMINATE SEARCH
-
-        ! Save previous material and temperature
-        p % last_material = p % material
-        p % last_sqrtkT = p % sqrtkT
-
-        ! Get distributed offset
-        if (size(c % material) > 1 .or. size(c % sqrtkT) > 1) then
-          ! Distributed instances of this cell have different
-          ! materials/temperatures. Determine which instance this is for
-          ! assigning the matching material/temperature.
-          distribcell_index = c % distribcell_index
-          offset = 0
-          do k = 1, p % n_coord
-            if (cells(p % coord(k) % cell) % type == FILL_UNIVERSE) then
-              offset = offset + cells(p % coord(k) % cell) % &
-                   offset(distribcell_index)
-            elseif (cells(p % coord(k) % cell) % type == FILL_LATTICE) then
-              if (lattices(p % coord(k + 1) % lattice) % obj &
-                   % are_valid_indices([&
-                   p % coord(k + 1) % lattice_x, &
-                   p % coord(k + 1) % lattice_y, &
-                   p % coord(k + 1) % lattice_z])) then
-                offset = offset + lattices(p % coord(k + 1) % lattice) % obj % &
-                     offset(distribcell_index, &
-                     p % coord(k + 1) % lattice_x, &
-                     p % coord(k + 1) % lattice_y, &
-                     p % coord(k + 1) % lattice_z)
-              end if
-            end if
-          end do
-        end if
-
-        ! Save the material
-        if (size(c % material) > 1) then
-          p % material = c % material(offset + 1)
-        else
-          p % material = c % material(1)
-        end if
-
-        ! Save the temperature
-        if (size(c % sqrtkT) > 1) then
-          p % sqrtkT = c % sqrtkT(offset + 1)
-        else
-          p % sqrtkT = c % sqrtkT(1)
-        end if
-
-      elseif (c % type == FILL_UNIVERSE) then CELL_TYPE
-        ! ======================================================================
-        ! CELL CONTAINS LOWER UNIVERSE, RECURSIVELY FIND CELL
-
-        ! Store lower level coordinates
-        p % coord(j + 1) % xyz = p % coord(j) % xyz
-        p % coord(j + 1) % uvw = p % coord(j) % uvw
-
-        ! Move particle to next level and set universe
-        j = j + 1
-        p % n_coord = j
-        p % coord(j) % universe = c % fill
-
-        ! Apply translation
-        if (allocated(c % translation)) then
-          p % coord(j) % xyz = p % coord(j) % xyz - c % translation
-        end if
-
-        ! Apply rotation
-        if (allocated(c % rotation_matrix)) then
-          p % coord(j) % xyz = matmul(c % rotation_matrix, p % coord(j) % xyz)
-          p % coord(j) % uvw = matmul(c % rotation_matrix, p % coord(j) % uvw)
-          p % coord(j) % rotated = .true.
-        end if
-
-        call find_cell(p, found)
-        j = p % n_coord
-        if (.not. found) exit
-
-      elseif (c % type == FILL_LATTICE) then CELL_TYPE
-        ! ======================================================================
-        ! CELL CONTAINS LATTICE, RECURSIVELY FIND CELL
-
-        ! Set current lattice
-        lat => lattices(c % fill) % obj
-
-        ! Determine lattice indices
-        i_xyz = lat % get_indices(p % coord(j) % xyz + TINY_BIT * p % coord(j) % uvw)
-
-        ! Store lower level coordinates
-        p % coord(j + 1) % xyz = lat % get_local_xyz(p % coord(j) % xyz, i_xyz)
-        p % coord(j + 1) % uvw = p % coord(j) % uvw
-
-        ! set particle lattice indices
-        p % coord(j + 1) % lattice   = c % fill
-        p % coord(j + 1) % lattice_x = i_xyz(1)
-        p % coord(j + 1) % lattice_y = i_xyz(2)
-        p % coord(j + 1) % lattice_z = i_xyz(3)
-
-        ! Set the next lowest coordinate level.
-        if (lat % are_valid_indices(i_xyz)) then
-          ! Particle is inside the lattice.
-          p % coord(j + 1) % universe = &
-               lat % universes(i_xyz(1), i_xyz(2), i_xyz(3))
-
-        else
-          ! Particle is outside the lattice.
-          if (lat % outer == NO_OUTER_UNIVERSE) then
-            call handle_lost_particle(p, "Particle " // trim(to_str(p %id)) &
-                 // " is outside lattice " // trim(to_str(lat % id)) &
-                 // " but the lattice has no defined outer universe.")
-            return
-          else
-            p % coord(j + 1) % universe = lat % outer
-          end if
-        end if
-
-        ! Move particle to next level and search for the lower cells.
-        j = j + 1
-        p % n_coord = j
-
-        call find_cell(p, found)
-        j = p % n_coord
-        if (.not. found) exit
-
-      end if CELL_TYPE
-
-      ! Found cell so we can return
-      found = .true.
-      return
     end do CELL_LOOP
 
-    found = .false.
+    if (found) then
+      associate(c => cells(i_cell))
+        CELL_TYPE: if (c % type == FILL_MATERIAL) then
+          ! ======================================================================
+          ! AT LOWEST UNIVERSE, TERMINATE SEARCH
+
+          ! Save previous material and temperature
+          p % last_material = p % material
+          p % last_sqrtkT = p % sqrtkT
+
+          ! Get distributed offset
+          if (size(c % material) > 1 .or. size(c % sqrtkT) > 1) then
+            ! Distributed instances of this cell have different
+            ! materials/temperatures. Determine which instance this is for
+            ! assigning the matching material/temperature.
+            distribcell_index = c % distribcell_index
+            offset = 0
+            do k = 1, p % n_coord
+              if (cells(p % coord(k) % cell) % type == FILL_UNIVERSE) then
+                offset = offset + cells(p % coord(k) % cell) % &
+                     offset(distribcell_index)
+              elseif (cells(p % coord(k) % cell) % type == FILL_LATTICE) then
+                if (lattices(p % coord(k + 1) % lattice) % obj &
+                     % are_valid_indices([&
+                     p % coord(k + 1) % lattice_x, &
+                     p % coord(k + 1) % lattice_y, &
+                     p % coord(k + 1) % lattice_z])) then
+                  offset = offset + lattices(p % coord(k + 1) % lattice) % obj % &
+                       offset(distribcell_index, &
+                       p % coord(k + 1) % lattice_x, &
+                       p % coord(k + 1) % lattice_y, &
+                       p % coord(k + 1) % lattice_z)
+                end if
+              end if
+            end do
+
+            ! Keep track of which instance of the cell the particle is in
+            p % cell_instance = offset + 1
+          else
+            p % cell_instance = 1
+          end if
+
+          ! Save the material
+          if (size(c % material) > 1) then
+            p % material = c % material(offset + 1)
+          else
+            p % material = c % material(1)
+          end if
+
+          ! Save the temperature
+          if (size(c % sqrtkT) > 1) then
+            p % sqrtkT = c % sqrtkT(offset + 1)
+          else
+            p % sqrtkT = c % sqrtkT(1)
+          end if
+
+        elseif (c % type == FILL_UNIVERSE) then CELL_TYPE
+          ! ======================================================================
+          ! CELL CONTAINS LOWER UNIVERSE, RECURSIVELY FIND CELL
+
+          ! Store lower level coordinates
+          p % coord(j + 1) % xyz = p % coord(j) % xyz
+          p % coord(j + 1) % uvw = p % coord(j) % uvw
+
+          ! Move particle to next level and set universe
+          j = j + 1
+          p % n_coord = j
+          p % coord(j) % universe = c % fill
+
+          ! Apply translation
+          if (allocated(c % translation)) then
+            p % coord(j) % xyz = p % coord(j) % xyz - c % translation
+          end if
+
+          ! Apply rotation
+          if (allocated(c % rotation_matrix)) then
+            p % coord(j) % xyz = matmul(c % rotation_matrix, p % coord(j) % xyz)
+            p % coord(j) % uvw = matmul(c % rotation_matrix, p % coord(j) % uvw)
+            p % coord(j) % rotated = .true.
+          end if
+
+          call find_cell(p, found)
+          j = p % n_coord
+
+        elseif (c % type == FILL_LATTICE) then CELL_TYPE
+          ! ======================================================================
+          ! CELL CONTAINS LATTICE, RECURSIVELY FIND CELL
+
+          associate (lat => lattices(c % fill) % obj)
+            ! Determine lattice indices
+            i_xyz = lat % get_indices(p % coord(j) % xyz + TINY_BIT * p % coord(j) % uvw)
+
+            ! Store lower level coordinates
+            p % coord(j + 1) % xyz = lat % get_local_xyz(p % coord(j) % xyz, i_xyz)
+            p % coord(j + 1) % uvw = p % coord(j) % uvw
+
+            ! set particle lattice indices
+            p % coord(j + 1) % lattice   = c % fill
+            p % coord(j + 1) % lattice_x = i_xyz(1)
+            p % coord(j + 1) % lattice_y = i_xyz(2)
+            p % coord(j + 1) % lattice_z = i_xyz(3)
+
+            ! Set the next lowest coordinate level.
+            if (lat % are_valid_indices(i_xyz)) then
+              ! Particle is inside the lattice.
+              p % coord(j + 1) % universe = &
+                   lat % universes(i_xyz(1), i_xyz(2), i_xyz(3))
+
+            else
+              ! Particle is outside the lattice.
+              if (lat % outer == NO_OUTER_UNIVERSE) then
+                call handle_lost_particle(p, "Particle " // trim(to_str(p %id)) &
+                     // " is outside lattice " // trim(to_str(lat % id)) &
+                     // " but the lattice has no defined outer universe.")
+                return
+              else
+                p % coord(j + 1) % universe = lat % outer
+              end if
+            end if
+          end associate
+
+          ! Move particle to next level and search for the lower cells.
+          j = j + 1
+          p % n_coord = j
+
+          call find_cell(p, found)
+          j = p % n_coord
+
+        end if CELL_TYPE
+      end associate
+    end if
 
   end subroutine find_cell
 
@@ -384,17 +385,18 @@ contains
 ! the geometry, is reflected, or crosses into a new lattice or cell
 !===============================================================================
 
-  subroutine cross_surface(p, last_cell)
+  subroutine cross_surface(p)
     type(Particle), intent(inout) :: p
-    integer,        intent(in)    :: last_cell  ! last cell particle was in
 
-    real(8) :: u         ! x-component of direction
-    real(8) :: v         ! y-component of direction
-    real(8) :: w         ! z-component of direction
-    real(8) :: norm      ! "norm" of surface normal
-    real(8) :: xyz(3)    ! Saved global coordinate
-    integer :: i_surface ! index in surfaces
-    logical :: found     ! particle found in universe?
+    real(8) :: u          ! x-component of direction
+    real(8) :: v          ! y-component of direction
+    real(8) :: w          ! z-component of direction
+    real(8) :: norm       ! "norm" of surface normal
+    real(8) :: d          ! distance between point and plane
+    real(8) :: xyz(3)     ! Saved global coordinate
+    integer :: i_surface  ! index in surfaces
+    logical :: rotational ! if rotational periodic BC applied
+    logical :: found      ! particle found in universe?
     class(Surface), pointer :: surf
 
     i_surface = abs(p % surface)
@@ -423,9 +425,7 @@ contains
       end if
 
       ! Score to global leakage tally
-      if (tallies_on) then
-        global_tally_leakage = global_tally_leakage + p % wgt
-      end if
+      global_tally_leakage = global_tally_leakage + p % wgt
 
       ! Display message
       if (verbosity >= 10 .or. trace) then
@@ -467,7 +467,7 @@ contains
       p%coord(1)%uvw(:) = [u, v, w] / norm
 
       ! Reassign particle's cell and surface
-      p % coord(1) % cell = last_cell
+      p % coord(1) % cell = p % last_cell(p % last_n_coord)
       p % surface = -p % surface
 
       ! If a reflective surface is coincident with a lattice or universe
@@ -514,17 +514,42 @@ contains
         p % coord(1) % xyz = xyz
       end if
 
+      rotational = .false.
       select type (surf)
       type is (SurfaceXPlane)
         select type (opposite => surfaces(surf % i_periodic) % obj)
         type is (SurfaceXPlane)
           p % coord(1) % xyz(1) = opposite % x0
+        type is (SurfaceYPlane)
+          rotational = .true.
+
+          ! Rotate direction
+          u = p % coord(1) % uvw(1)
+          v = p % coord(1) % uvw(2)
+          p % coord(1) % uvw(1) = v
+          p % coord(1) % uvw(2) = -u
+
+          ! Rotate position
+          p % coord(1) % xyz(1) = surf % x0 + p % coord(1) % xyz(2) - opposite % y0
+          p % coord(1) % xyz(2) = opposite % y0
         end select
 
       type is (SurfaceYPlane)
         select type (opposite => surfaces(surf % i_periodic) % obj)
         type is (SurfaceYPlane)
           p % coord(1) % xyz(2) = opposite % y0
+        type is (SurfaceXPlane)
+          rotational = .true.
+
+          ! Rotate direction
+          u = p % coord(1) % uvw(1)
+          v = p % coord(1) % uvw(2)
+          p % coord(1) % uvw(1) = -v
+          p % coord(1) % uvw(2) = u
+
+          ! Rotate position
+          p % coord(1) % xyz(2) = surf % y0 + p % coord(1) % xyz(1) - opposite % x0
+          p % coord(1) % xyz(1) = opposite % x0
         end select
 
       type is (SurfaceZPlane)
@@ -532,10 +557,28 @@ contains
         type is (SurfaceZPlane)
           p % coord(1) % xyz(3) = opposite % z0
         end select
+
+      type is (SurfacePlane)
+        select type (opposite => surfaces(surf % i_periodic) % obj)
+        type is (SurfacePlane)
+          ! Get surface normal for opposite plane
+          xyz(:) = opposite % normal(p % coord(1) % xyz)
+
+          ! Determine distance to plane
+          norm = xyz(1)*xyz(1) + xyz(2)*xyz(2) + xyz(3)*xyz(3)
+          d = opposite % evaluate(p % coord(1) % xyz) / norm
+
+          ! Move particle along normal vector based on distance
+          p % coord(1) % xyz(:) = p % coord(1) % xyz(:) - d*xyz
+        end select
       end select
 
       ! Reassign particle's surface
-      p % surface = sign(surf % i_periodic, p % surface)
+      if (rotational) then
+        p % surface = surf % i_periodic
+      else
+        p % surface = sign(surf % i_periodic, p % surface)
+      end if
 
       ! Figure out what cell particle is in now
       p % n_coord = 1
@@ -1206,8 +1249,8 @@ contains
     class(Lattice), pointer :: lat         ! pointer to current lattice
 
     ! Don't research places already checked
-    if (found(universe_dict % get_key(univ % id), map)) then
-      count = counts(universe_dict % get_key(univ % id), map)
+    if (found(universe_dict % get(univ % id), map)) then
+      count = counts(universe_dict % get(univ % id), map)
       return
     end if
 
@@ -1215,8 +1258,8 @@ contains
     ! Count = 1, then quit
     if (univ % id == univ_id) then
       count = 1
-      counts(universe_dict % get_key(univ % id), map) = 1
-      found(universe_dict % get_key(univ % id), map) = .true.
+      counts(universe_dict % get(univ % id), map) = 1
+      found(universe_dict % get(univ % id), map) = .true.
       return
     end if
 
@@ -1312,8 +1355,8 @@ contains
       end if
     end do
 
-    counts(universe_dict % get_key(univ % id), map) = count
-    found(universe_dict % get_key(univ % id), map) = .true.
+    counts(universe_dict % get(univ % id), map) = count
+    found(universe_dict % get(univ % id), map) = .true.
 
   end function count_target
 

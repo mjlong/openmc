@@ -5,10 +5,9 @@ module physics
   use cross_section,          only: elastic_xs_0K
   use endf,                   only: reaction_name
   use error,                  only: fatal_error, warning
-  use global
-  use material_header,        only: Material
+  use material_header,        only: Material, materials
   use math
-  use mesh,                   only: get_mesh_indices
+  use mesh_header,            only: meshes
   use message_passing
   use nuclide_header
   use output,                 only: write_message
@@ -17,8 +16,12 @@ module physics
   use physics_common
   use random_lcg,             only: prn, advance_prn_seed, prn_set_stream
   use reaction_header,        only: Reaction
+  use sab_header,             only: sab_tables
   use secondary_uncorrelated, only: UncorrelatedAngleEnergy
+  use settings
+  use simulation_header
   use string,                 only: to_str
+  use tally_header
 
   implicit none
 
@@ -32,11 +35,6 @@ contains
   subroutine collision(p)
 
     type(Particle), intent(inout) :: p
-
-    ! Store pre-collision particle properties
-    p % last_wgt = p % wgt
-    p % last_E   = p % E
-    p % last_uvw = p % coord(1) % uvw
 
     ! Add to collision counter for particle
     p % n_collision = p % n_collision + 1
@@ -324,6 +322,7 @@ contains
     real(8) :: uvw_old(3) ! incoming uvw for iso-in-lab scattering
     real(8) :: phi        ! azimuthal angle for iso-in-lab scattering
     real(8) :: kT         ! temperature in eV
+    logical :: sampled    ! whether or not a reaction type has been sampled
     type(Nuclide),  pointer :: nuc
 
     ! copy incoming direction
@@ -337,36 +336,43 @@ contains
 
     ! For tallying purposes, this routine might be called directly. In that
     ! case, we need to sample a reaction via the cutoff variable
-    prob = ZERO
     cutoff = prn() * (micro_xs(i_nuclide) % total - &
          micro_xs(i_nuclide) % absorption)
+    sampled = .false.
 
-    prob = prob + micro_xs(i_nuclide) % elastic
+    prob = micro_xs(i_nuclide) % elastic - micro_xs(i_nuclide) % thermal
     if (prob > cutoff) then
       ! =======================================================================
-      ! ELASTIC SCATTERING
+      ! NON-S(A,B) ELASTIC SCATTERING
 
-      if (micro_xs(i_nuclide) % index_sab /= NONE) then
-        ! S(a,b) scattering
-        call sab_scatter(i_nuclide, micro_xs(i_nuclide) % index_sab, &
-             p % E, p % coord(1) % uvw, p % mu)
-
+      ! Determine temperature
+      if (nuc % mp_present) then
+        kT = p % sqrtkT**2
       else
-        ! Determine temperature
-        if (nuc % mp_present) then
-          kT = p % sqrtkT**2
-        else
-          kT = nuc % kTs(micro_xs(i_nuclide) % index_temp)
-        end if
-
-        ! Perform collision physics for elastic scattering
-        call elastic_scatter(i_nuclide, nuc % reactions(1), kT, &
-             p % E, p % coord(1) % uvw, p % mu, p % wgt)
+        kT = nuc % kTs(micro_xs(i_nuclide) % index_temp)
       end if
 
-      p % event_MT = ELASTIC
+      ! Perform collision physics for elastic scattering
+      call elastic_scatter(i_nuclide, nuc % reactions(1), kT, p % E, &
+                           p % coord(1) % uvw, p % mu, p % wgt)
 
-    else
+      p % event_MT = ELASTIC
+      sampled = .true.
+    end if
+
+    prob = micro_xs(i_nuclide) % elastic
+    if (prob > cutoff .and. .not. sampled) then
+      ! =======================================================================
+      ! S(A,B) SCATTERING
+
+      call sab_scatter(i_nuclide, micro_xs(i_nuclide) % index_sab, p % E, &
+                       p % coord(1) % uvw, p % mu)
+
+      p % event_MT = ELASTIC
+      sampled = .true.
+    end if
+
+    if (.not. sampled) then
       ! =======================================================================
       ! INELASTIC SCATTERING
 
@@ -388,7 +394,7 @@ contains
           if (rx % MT == N_FISSION .or. rx % MT == N_F .or. rx % MT == N_NF &
                .or. rx % MT == N_2NF .or. rx % MT == N_3NF) cycle
 
-          ! some materials have gas production cross sections with MT > 200 that
+          ! Some materials have gas production cross sections with MT > 200 that
           ! are duplicates. Also MT=4 is total level inelastic scattering which
           ! should be skipped
           if (rx % MT >= 200 .or. rx % MT == N_LEVEL) cycle
@@ -406,24 +412,24 @@ contains
 
       ! Perform collision physics for inelastic scattering
       call inelastic_scatter(nuc, nuc%reactions(i), p)
-      p % event_MT = nuc%reactions(i)%MT
+      p % event_MT = nuc % reactions(i) % MT
 
     end if
 
     ! Set event component
     p % event = EVENT_SCATTER
 
-    ! sample new outgoing angle for isotropic in lab scattering
+    ! Sample new outgoing angle for isotropic in lab scattering
     if (materials(p % material) % p0(i_nuc_mat)) then
 
-      ! sample isotropic-in-lab outgoing direction
+      ! Sample isotropic-in-lab outgoing direction
       uvw_new(1) = TWO * prn() - ONE
       phi = TWO * PI * prn()
       uvw_new(2) = cos(phi) * sqrt(ONE - uvw_new(1)*uvw_new(1))
       uvw_new(3) = sin(phi) * sqrt(ONE - uvw_new(1)*uvw_new(1))
       p % mu = dot_product(uvw_old, uvw_new)
 
-      ! change direction of particle
+      ! Change direction of particle
       p % coord(1) % uvw = uvw_new
     end if
 
@@ -559,8 +565,8 @@ contains
     associate (sab => sab_tables(i_sab) % data(i_temp))
 
       ! Determine whether inelastic or elastic scattering will occur
-      if (prn() < micro_xs(i_nuclide) % elastic_sab / &
-           micro_xs(i_nuclide) % elastic) then
+      if (prn() < micro_xs(i_nuclide) % thermal_elastic / &
+           micro_xs(i_nuclide) % thermal) then
         ! elastic scattering
 
         ! Get index and interpolation factor for elastic grid
@@ -818,7 +824,6 @@ contains
     real(8) :: xs_low  ! 0K xs at lowest practical relative energy
     real(8) :: xs_up   ! 0K xs at highest practical relative energy
     real(8) :: m       ! slope for interpolation
-    real(8) :: xi      ! pseudorandom number on [0,1)
     real(8) :: R       ! rejection criterion for DBRC / target speed
     real(8) :: cdf_low ! xs cdf at lowest practical relative energy
     real(8) :: cdf_up  ! xs cdf at highest practical relative energy
@@ -1072,10 +1077,9 @@ contains
     integer :: nu_d(MAX_DELAYED_GROUPS) ! number of delayed neutrons born
     integer :: i                        ! loop index
     integer :: nu                       ! actual number of neutrons produced
-    integer :: ijk(3)                   ! indices in ufs mesh
+    integer :: mesh_bin                 ! mesh bin for source site
     real(8) :: nu_t                     ! total nu
     real(8) :: weight                   ! weight adjustment for ufs method
-    logical :: in_mesh                  ! source site in ufs mesh?
     type(Nuclide),  pointer :: nuc
 
     ! Get pointers
@@ -1087,18 +1091,20 @@ contains
     ! the expected number of fission sites produced
 
     if (ufs) then
-      ! Determine indices on ufs mesh for current location
-      call get_mesh_indices(ufs_mesh, p % coord(1) % xyz, ijk, in_mesh)
-      if (.not. in_mesh) then
-        call write_particle_restart(p)
-        call fatal_error("Source site outside UFS mesh!")
-      end if
+      associate (m => meshes(index_ufs_mesh))
+        ! Determine indices on ufs mesh for current location
+        call m % get_bin(p % coord(1) % xyz, mesh_bin)
+        if (mesh_bin == NO_BIN_FOUND) then
+          call write_particle_restart(p)
+          call fatal_error("Source site outside UFS mesh!")
+        end if
 
-      if (source_frac(1,ijk(1),ijk(2),ijk(3)) /= ZERO) then
-        weight = ufs_mesh % volume_frac / source_frac(1,ijk(1),ijk(2),ijk(3))
-      else
-        weight = ONE
-      end if
+        if (source_frac(1, mesh_bin) /= ZERO) then
+          weight = m % volume_frac / source_frac(1, mesh_bin)
+        else
+          weight = ONE
+        end if
+      end associate
     else
       weight = ONE
     end if

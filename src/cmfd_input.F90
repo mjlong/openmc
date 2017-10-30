@@ -1,6 +1,13 @@
 module cmfd_input
 
-  use global
+  use, intrinsic :: ISO_C_BINDING
+
+  use cmfd_header
+  use mesh_header, only: mesh_dict
+  use mgxs_header, only: energy_bins
+  use tally
+  use tally_header
+  use timer_header
 
   implicit none
   private
@@ -14,20 +21,8 @@ contains
 
   subroutine configure_cmfd()
 
-    use cmfd_header,  only: allocate_cmfd
-    use message_passing, only: master
-
-    integer :: color    ! color group of processor
-
     ! Read in cmfd input file
     call read_cmfd_xml()
-
-    ! Assign color
-    if (master) then
-      color = 1
-    else
-      color = 2
-    end if
 
     ! Initialize timers
     call time_cmfd % reset()
@@ -47,7 +42,6 @@ contains
 
     use constants, only: ZERO, ONE
     use error,     only: fatal_error, warning
-    use global
     use output,    only: write_message
     use string,    only: to_lower
     use xml_interface
@@ -241,46 +235,48 @@ contains
 ! There are 3 tally types:
 !   1: Only an energy in filter-> flux,total,p1 scatter
 !   2: Energy in and energy out filter-> nu-scatter,nu-fission
-!   3: Surface current
+!   3: Mesh current
 !===============================================================================
 
   subroutine create_cmfd_tally(root)
 
     use constants,        only: MAX_LINE_LEN
     use error,            only: fatal_error, warning
-    use mesh_header,      only: RegularMesh
+    use mesh_header,      only: RegularMesh, openmc_extend_meshes
     use string
-    use tally,            only: setup_active_cmfdtallies
-    use tally_header,     only: TallyObject
+    use tally,            only: openmc_tally_set_type
+    use tally_header,     only: openmc_extend_tallies
     use tally_filter_header
     use tally_filter
-    use tally_initialize, only: add_tallies
     use xml_interface
 
     type(XMLNode), intent(in) :: root ! XML root element
 
-    integer :: i, j        ! loop counter
+    logical :: energy_filters
+    integer :: i           ! loop counter
     integer :: n           ! size of arrays in mesh specification
-    integer :: ng          ! number of energy groups (default 1)
-    integer :: n_filters   ! number of filters
-    integer :: i_filter_mesh ! index for mesh filter
+    integer(C_INT32_T) :: ng  ! number of energy groups (default 1)
+    integer :: n_filter    ! number of filters
+    integer :: i_start, i_end
+    integer :: i_filt_start, i_filt_end
+    integer(C_INT32_T), allocatable :: filter_indices(:)
+    integer(C_INT) :: err
+    integer :: i_filt     ! index in filters array
+    integer :: filt_id
     integer :: iarray3(3) ! temp integer array
     real(8) :: rarray3(3) ! temp double array
-    type(TallyObject),    pointer :: t
+    real(C_DOUBLE), allocatable :: energies(:)
     type(RegularMesh), pointer :: m
-    type(TallyFilterContainer) :: filters(N_FILTER_TYPES) ! temporary filters
     type(XMLNode) :: node_mesh
 
-    ! Set global variables if they are 0 (this can happen if there is no tally
-    ! file)
-    if (n_meshes == 0) n_meshes = n_user_meshes + n_cmfd_meshes
+    err = openmc_extend_meshes(1, i_start)
 
     ! Allocate mesh
-    if (.not. allocated(meshes)) allocate(meshes(n_meshes))
-    m => meshes(n_user_meshes+1)
+    cmfd_mesh => meshes(i_start)
+    m => meshes(i_start)
 
     ! Set mesh id
-    m % id = n_user_meshes + 1
+    m % id = i_start
 
     ! Set mesh type to rectangular
     m % type = LATTICE_RECT
@@ -374,44 +370,108 @@ contains
     m % volume_frac = ONE/real(product(m % dimension),8)
 
     ! Add mesh to dictionary
-    call mesh_dict % add_key(m % id, n_user_meshes + 1)
+    call mesh_dict % set(m % id, i_start)
+
+    ! Determine number of filters
+    energy_filters = check_for_node(node_mesh, "energy")
+    n = merge(5, 3, energy_filters)
+
+    ! Extend filters array so we can add CMFD filters
+    err = openmc_extend_filters(n, i_filt_start, i_filt_end)
+
+    ! Set up mesh filter
+    i_filt = i_filt_start
+    err = openmc_filter_set_type(i_filt, C_CHAR_'mesh' // C_NULL_CHAR)
+    call openmc_get_filter_next_id(filt_id)
+    err = openmc_filter_set_id(i_filt, filt_id)
+    err = openmc_mesh_filter_set_mesh(i_filt, i_start)
+
+    if (energy_filters) then
+      ! Read and set incoming energy mesh filter
+      i_filt = i_filt + 1
+      err = openmc_filter_set_type(i_filt, C_CHAR_'energy' // C_NULL_CHAR)
+      call openmc_get_filter_next_id(filt_id)
+      err = openmc_filter_set_id(i_filt, filt_id)
+
+      ! Get energies and set bins
+      ng = node_word_count(node_mesh, "energy")
+      allocate(energies(ng))
+      call get_node_array(node_mesh, "energy", energies)
+      err = openmc_energy_filter_set_bins(i_filt, ng, energies)
+
+      ! Read and set outgoing energy mesh filter
+      i_filt = i_filt + 1
+      err = openmc_filter_set_type(i_filt, C_CHAR_'energyout' // C_NULL_CHAR)
+      call openmc_get_filter_next_id(filt_id)
+      err = openmc_filter_set_id(i_filt, filt_id)
+      err = openmc_energy_filter_set_bins(i_filt, ng, energies)
+    end if
+
+    ! Duplicate the mesh filter for the mesh current tally since other
+    ! tallies use this filter and we need to change the dimension
+    i_filt = i_filt + 1
+    err = openmc_filter_set_type(i_filt, C_CHAR_'mesh' // C_NULL_CHAR)
+    call openmc_get_filter_next_id(filt_id)
+    err = openmc_filter_set_id(i_filt, filt_id)
+    err = openmc_mesh_filter_set_mesh(i_filt, i_start)
+
+    ! We need to increase the dimension by one since we also need
+    ! currents coming into and out of the boundary mesh cells.
+    filters(i_filt) % obj % n_bins = product(m % dimension + 1)
+
+    ! Set up surface filter
+    i_filt = i_filt + 1
+    allocate(SurfaceFilter :: filters(i_filt) % obj)
+    select type(filt => filters(i_filt) % obj)
+    type is(SurfaceFilter)
+      filt % id = i_filt
+      filt % n_bins = 4 * m % n_dimension
+      allocate(filt % surfaces(4 * m % n_dimension))
+      if (m % n_dimension == 2) then
+        filt % surfaces = (/ OUT_LEFT, IN_LEFT, IN_RIGHT, OUT_RIGHT, &
+             OUT_BACK, IN_BACK, IN_FRONT, OUT_FRONT /)
+      elseif (m % n_dimension == 3) then
+        filt % surfaces = (/ OUT_LEFT, IN_LEFT, IN_RIGHT, OUT_RIGHT, &
+             OUT_BACK, IN_BACK, IN_FRONT, OUT_FRONT, &
+             OUT_BOTTOM, IN_BOTTOM, IN_TOP, OUT_TOP /)
+      end if
+      filt % current = .true.
+      ! Add filter to dictionary
+      call filter_dict % set(filt % id, i_filt)
+    end select
+
+    ! Initialize filters
+    do i = i_filt_start, i_filt_end
+      select type (filt => filters(i) % obj)
+      type is (SurfaceFilter)
+        ! Don't do anything
+      class default
+        call filt % initialize()
+      end select
+    end do
 
     ! Allocate tallies
-    call add_tallies("cmfd", n_cmfd_tallies)
+    err = openmc_extend_tallies(3, i_start, i_end)
+    cmfd_tallies => tallies(i_start:i_end)
 
     ! Begin loop around tallies
-    do i = 1, n_cmfd_tallies
+    do i = 1, size(cmfd_tallies)
+      ! Allocate tally
+      err = openmc_tally_set_type(i_start + i - 1, C_CHAR_'generic' // C_NULL_CHAR)
 
       ! Point t to tally variable
-      t => cmfd_tallies(i)
+      associate (t => cmfd_tallies(i) % obj)
 
       ! Set reset property
       if (check_for_node(root, "reset")) then
         call get_node_value(root, "reset", t % reset)
       end if
 
-      ! Set up mesh filter
-      n_filters = 1
-      allocate(MeshFilter :: filters(n_filters) % obj)
-      select type (filt => filters(n_filters) % obj)
-      type is (MeshFilter)
-        filt % n_bins = product(m % dimension)
-        filt % mesh = n_user_meshes + 1
-      end select
-      t % find_filter(FILTER_MESH) = n_filters
-
-      ! Read and set incoming energy mesh filter
-      if (check_for_node(node_mesh, "energy")) then
-        n_filters = n_filters + 1
-        allocate(EnergyFilter :: filters(n_filters) % obj)
-        select type (filt => filters(n_filters) % obj)
-        type is (EnergyFilter)
-          ng = node_word_count(node_mesh, "energy")
-          filt % n_bins = ng - 1
-          allocate(filt % bins(ng))
-          call get_node_array(node_mesh, "energy", filt % bins)
-        end select
-        t % find_filter(FILTER_ENERGYIN) = n_filters
+      ! Set the incoming energy mesh filter index in the tally find_filter
+      ! array
+      n_filter = 1
+      if (energy_filters) then
+        n_filter = n_filter + 1
       end if
 
       ! Set number of nucilde bins
@@ -420,7 +480,7 @@ contains
       t % n_nuclide_bins = 1
 
       ! Record tally id which is equivalent to loop number
-      t % id = i_cmfd_tallies + i
+      t % id = i_start + i - 1
 
       if (i == 1) then
 
@@ -434,10 +494,13 @@ contains
         t % type = TALLY_VOLUME
 
         ! Allocate and set filters
-        allocate(t % filters(n_filters))
-        do j = 1, n_filters
-          call move_alloc(filters(j) % obj, t % filters(j) % obj)
-        end do
+        allocate(filter_indices(n_filter))
+        filter_indices(1) = i_filt_start
+        if (energy_filters) then
+          filter_indices(2) = i_filt_start + 1
+        end if
+        err = openmc_tally_set_filters(i_start + i - 1, n_filter, filter_indices)
+        deallocate(filter_indices)
 
         ! Allocate scoring bins
         allocate(t % score_bins(3))
@@ -465,25 +528,21 @@ contains
         ! Set tally type to volume
         t % type = TALLY_VOLUME
 
-        ! read and set outgoing energy mesh filter
-        if (check_for_node(node_mesh, "energy")) then
-          n_filters = n_filters + 1
-          allocate(EnergyoutFilter :: filters(n_filters) % obj)
-          select type (filt => filters(n_filters) % obj)
-          type is (EnergyoutFilter)
-            ng = node_word_count(node_mesh, "energy")
-            filt % n_bins = ng - 1
-            allocate(filt % bins(ng))
-            call get_node_array(node_mesh, "energy", filt % bins)
-          end select
-          t % find_filter(FILTER_ENERGYOUT) = n_filters
+        ! Set the incoming energy mesh filter index in the tally find_filter
+        ! array
+        if (energy_filters) then
+          n_filter = n_filter + 1
         end if
 
-        ! Allocate and set filters
-        allocate(t % filters(n_filters))
-        do j = 1, n_filters
-          call move_alloc(filters(j) % obj, t % filters(j) % obj)
-        end do
+        ! Allocate and set indices in filters array
+        allocate(filter_indices(n_filter))
+        filter_indices(1) = i_filt_start
+        if (energy_filters) then
+          filter_indices(2) = i_filt_start + 1
+          filter_indices(3) = i_filt_start + 2
+        end if
+        err = openmc_tally_set_filters(i_start + i - 1, n_filter, filter_indices)
+        deallocate(filter_indices)
 
         ! Allocate macro reactions
         allocate(t % score_bins(2))
@@ -506,29 +565,18 @@ contains
         ! Set tally estimator to analog
         t % estimator = ESTIMATOR_ANALOG
 
-        ! Add extra filter for surface
-        n_filters = n_filters + 1
-        allocate(SurfaceFilter :: filters(n_filters) % obj)
-        select type(filt => filters(n_filters) % obj)
-        type is(SurfaceFilter)
-          filt % n_bins = 4 * m % n_dimension
-          allocate(filt % surfaces(4 * m % n_dimension))
-          if (m % n_dimension == 2) then
-            filt % surfaces = (/ OUT_LEFT, IN_LEFT, IN_RIGHT, OUT_RIGHT, &
-                 OUT_BACK, IN_BACK, IN_FRONT, OUT_FRONT /)
-          elseif (m % n_dimension == 3) then
-            filt % surfaces = (/ OUT_LEFT, IN_LEFT, IN_RIGHT, OUT_RIGHT, &
-                 OUT_BACK, IN_BACK, IN_FRONT, OUT_FRONT, &
-                 OUT_BOTTOM, IN_BOTTOM, IN_TOP, OUT_TOP /)
-          end if
-        end select
-        t % find_filter(FILTER_SURFACE) = n_filters
+        ! Set the surface filter index in the tally find_filter array
+        n_filter = n_filter + 1
 
         ! Allocate and set filters
-        allocate(t % filters(n_filters))
-        do j = 1, n_filters
-          call move_alloc(filters(j) % obj, t % filters(j) % obj)
-        end do
+        allocate(filter_indices(n_filter))
+        filter_indices(1) = i_filt_end - 1
+        filter_indices(n_filter) = i_filt_end
+        if (energy_filters) then
+          filter_indices(2) = i_filt_start + 1
+        end if
+        err = openmc_tally_set_filters(i_start + i - 1, n_filter, filter_indices)
+        deallocate(filter_indices)
 
         ! Allocate macro reactions
         allocate(t % score_bins(1))
@@ -541,22 +589,14 @@ contains
 
         ! Set macro bins
         t % score_bins(1) = SCORE_CURRENT
-        t % type = TALLY_SURFACE_CURRENT
-
-        ! We need to increase the dimension by one since we also need
-        ! currents coming into and out of the boundary mesh cells.
-        i_filter_mesh = t % find_filter(FILTER_MESH)
-        t % filters(i_filter_mesh) % obj % n_bins = product(m % dimension + 1)
-
+        t % type = TALLY_MESH_CURRENT
       end if
 
-    end do
+      ! Make CMFD tallies active from the start
+      t % active = .true.
 
-    ! Put cmfd tallies into active tally array and turn tallies on
-!$omp parallel
-    call setup_active_cmfdtallies()
-!$omp end parallel
-    tallies_on = .true.
+      end associate
+    end do
 
   end subroutine create_cmfd_tally
 
