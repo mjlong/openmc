@@ -601,7 +601,11 @@ contains
     integer(8) :: i_bank    ! Running count of number of particles
     integer(8) :: min_work  ! Minimum number of particles on each proc
     integer(8) :: work_i    ! Number of particles on rank i
+    integer(8) :: work_old  ! Number of particles on rank i before splitting for delay
+    integer(8) :: work_scan ! temp to store scanned work_delay
 
+    !saving work to calculate work_i_delay = work_i_old - work_i
+    work_old = work; 
     if(.not. allocated(work_index)) allocate(work_index(0:n_procs))
 
     ! Determine minimum amount of particles to simulate on each processor
@@ -632,28 +636,16 @@ contains
 
     allocate(work_index_delay(0:n_procs))
 
-    ! Determine minimum amount of particles to simulate on each processor
-    min_work = n_particles_delay/n_procs
-
-    ! Determine number of processors that have one extra particle
-    remainder = int(mod(n_particles_delay, int(n_procs,8)), 4)
-
-    i_bank = 0
     work_index_delay(0) = 0
+    work_delay = work_old - work;
+
+    call MPI_SCAN(work_delay, work_scan, 1, MPI_INTEGER8, MPI_SUM, &
+         mpi_intracomm, mpi_err)
+    work_index_delay(rank+1) = work_scan; 
+
     do i = 0, n_procs - 1
-      ! Number of particles for rank i
-      if (i < remainder) then
-        work_i = min_work + 1
-      else
-        work_i = min_work
-      end if
-
-      ! Set number of particles
-      if (rank == i) work_delay = work_i
-
-      ! Set index into source bank for rank i
-      i_bank = i_bank + work_i
-      work_index_delay(i+1) = i_bank
+      call MPI_BCAST(work_index_delay(i+1), 1, MPI_INTEGER8, i, &
+           mpi_intracomm, mpi_err)
     end do
 
 
