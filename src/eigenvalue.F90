@@ -27,7 +27,7 @@ contains
 !    source_bank as delayed_bank 
 !===============================================================================
 
-  subroutine prepare_bank()
+  subroutine prepare_bank_fix()
     integer    :: i
     integer    :: j 
     integer(8) :: shift
@@ -79,7 +79,57 @@ contains
       end if
     end do
 
+  end subroutine prepare_bank_fix
+
+
+  subroutine prepare_bank()
+    integer(8) :: i
+    integer(8) :: j1
+    integer(8) :: j2
+    integer(8) :: shift
+    real(8)    :: rnd
+
+    call set_particle_seed(int((current_batch - 1)*gen_per_batch + &
+         current_gen,8))
+    call advance_prn_seed( int(rank,8) )
+    
+    ! select n_bank*f from n_bank (fission_bank to prompt bank)
+    ! select n_delay*p from n_delay (second part of source_bank to delayed bank)
+
+    ! split fission_bank
+     
+    j1 = 1
+    j2 = 1
+    do i = 1, n_bank
+      rnd = prn() 
+      if( rnd <= f ) then
+        prompt_bank(j1) =  fission_bank(i)     
+        j1 = j1 + 1
+      else 
+        delayed_bank(j2) = fission_bank(i)
+        j2 = j2 + 1
+      end if
+    end do
+
+    ! split source_bank (with delayed neutrons)
+    shift = work
+
+    do i = 1, work_delay
+      rnd = prn() 
+      if( rnd <= p ) then 
+        prompt_bank(j1) =  source_bank(shift+i)
+        j1 = j1 + 1
+      else
+        delayed_bank(j2) = source_bank(shift+i) 
+        j2 = j2 + 1
+      end if
+    end do
+    
+    n_pbank = j1 - 1
+    n_dbank = j2 - 1
+ 
   end subroutine prepare_bank
+
 
 !===============================================================================
 ! SYNCHRONIZE_BANK samples source sites from the fission sites that were
