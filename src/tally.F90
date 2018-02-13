@@ -3040,7 +3040,7 @@ contains
     end do
 
 
-    do i_source = 1, size(source_bank)
+    do i_source = 1, work
        xyz = source_bank(i_source)%xyz
        do i_source_count = 1, n_source_counts
           sc => source_counts(i_source_count)
