@@ -639,6 +639,7 @@ contains
     work_index_delay(0) = 0
     work_delay = work_old - work;
 
+#ifdef MPI
     call MPI_SCAN(work_delay, work_scan, 1, MPI_INTEGER8, MPI_SUM, &
          mpi_intracomm, mpi_err)
     work_index_delay(rank+1) = work_scan; 
@@ -648,6 +649,9 @@ contains
            mpi_intracomm, mpi_err)
     end do
 
+#else 
+    work_index_delay(rank+1) = work_delay
+#endif
 
     endif
 
