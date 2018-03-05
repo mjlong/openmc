@@ -3028,7 +3028,7 @@ contains
 
   subroutine get_source_bins()
     integer :: i_source_count
-    integer :: i_source
+    integer(8) :: i_source
     integer(4) :: i_bin
     real(8)    :: xyz(3)
     type(SourceCount), pointer :: sc
