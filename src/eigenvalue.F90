@@ -11,6 +11,7 @@ module eigenvalue
   use message_passing
   use random_lcg,  only: prn, set_particle_seed, advance_prn_seed
   use string,      only: to_str
+  use initialize,  only: substract_by_proc, divide_by_proc
 
   implicit none
 
@@ -28,8 +29,8 @@ contains
 !===============================================================================
 
   subroutine prepare_bank_fix()
-    integer    :: i
-    integer    :: j 
+    integer(8) :: i
+    integer(8) :: j
     integer(8) :: shift
     integer(8) :: num_from_fission
     integer(8) :: num_from_delayed
@@ -51,7 +52,7 @@ contains
       prompt_bank(i) = fission_bank(i)
     end do
 
-    do i = 1+int(num_from_fission,4), n_bank
+    do i = 1+num_from_fission, n_bank
       j = 1 + floor( num_from_fission * prn() )
       if( j <= num_from_fission ) then
         delayed_bank(i-num_from_fission) = prompt_bank(j)
@@ -67,7 +68,7 @@ contains
       prompt_bank(num_from_fission + i) = source_bank(shift + i)
     end do
 
-    do i = 1+int(num_from_delayed,4), work_delay
+    do i = 1+num_from_delayed, work_delay
       j = 1 + floor( num_from_delayed * prn() )
       if( j <= num_from_delayed ) then 
         delayed_bank(n_bank - num_from_fission + i-num_from_delayed) = &
@@ -81,8 +82,19 @@ contains
 
   end subroutine prepare_bank_fix
 
-
-  subroutine prepare_bank()
+!===============================================================================
+! PREPARE_BANK implements an analog version while PREPARE_BANK_FIX above is a 
+!              reservoir sampling algorithm not ready to use (with bugs)
+! * at the last inactive generation, prepare_bank() samples alpha neutrons from 
+! fission_bank to prompt_bank and (1-alpha) to delayed bank: 
+! ----- fission_ratio = alpha, delay_size=0
+! * after active generations, prepare_bank() samples f (p) neutrons from fissio-
+! n_bank (source_bank[work+1:]) to prompt_bank and remaining to delayed_bank
+! ----- fission_ratio = f,     delay_size=work_delay
+!===============================================================================
+  subroutine prepare_bank(fission_ratio,delay_size)
+    real(8)    :: fission_ratio
+    integer(8) :: delay_size
     integer(8) :: i
     integer(8) :: j1
     integer(8) :: j2
@@ -102,7 +114,7 @@ contains
     j2 = 1
     do i = 1, n_bank
       rnd = prn() 
-      if( rnd <= f ) then
+      if( rnd <= fission_ratio ) then
         prompt_bank(j1) =  fission_bank(i)     
         j1 = j1 + 1
       else 
@@ -114,7 +126,7 @@ contains
     ! split source_bank (with delayed neutrons)
     shift = work
 
-    do i = 1, work_delay
+    do i = 1, delay_size
       rnd = prn() 
       if( rnd <= p ) then 
         prompt_bank(j1) =  source_bank(shift+i)
@@ -139,12 +151,50 @@ contains
 
   subroutine synchronize_bank()
 
-    if( ( overall_gen <= n_inactive*gen_per_batch ) .or. 1==alpha) then
+    integer :: alloc_err  ! allocation error code
+    integer(8) :: tmp_work
+    integer(8) :: tmp_work_delay
+    integer(8) :: tmp_nparticles
+    integer(8) :: tmp_nparticles_delay
+    integer(8), allocatable :: tmp_index(:)
+    integer(8), allocatable :: tmp_index_delay(:)
+
+    if( ( overall_gen < n_inactive*gen_per_batch ) .or. 1==alpha) then
       call synchronize_bank_explicit(n_particles, fission_bank, n_bank, &
            int(   0,8), work_index,      work*3)
-    else
+    else if ( ( overall_gen == n_inactive*gen_per_batch ) ) then 
+      allocate(prompt_bank( floor( work * alpha )*2), STAT=alloc_err)
+      if (alloc_err /= 0) then
+        call fatal_error("Failed to allocate prompt bank.")
+      end if
+      allocate(delayed_bank( (work - floor( work * alpha ))*2), STAT=alloc_err)
+      if (alloc_err /= 0) then
+        call fatal_error("Failed to allocate delayed bank.")
+      end if
 
-      call prepare_bank()
+      call prepare_bank(alpha,0_8)
+
+      ! Need to call synchronize_bank with new n_particles and n_particles_delay
+      ! However, n_particles and n_particles_delay is updated during initialize_
+      ! batch() when cur_batch = n_inactive + 1
+      ! Therefore, tmp_* variables are created here
+      tmp_nparticles = floor( n_particles * alpha )
+      tmp_nparticles_delay = n_particles - tmp_nparticles
+      allocate(tmp_index(0:n_procs))
+      allocate(tmp_index_delay(0:n_procs))
+      call divide_by_proc(tmp_nparticles, tmp_work, tmp_index)
+      call substract_by_proc(work, tmp_work, tmp_work_delay, tmp_index_delay) 
+
+      call synchronize_bank_explicit(tmp_nparticles,       prompt_bank,  n_pbank, &
+           int(   0,8),     tmp_index,      tmp_work*3)
+      call synchronize_bank_explicit(tmp_nparticles_delay, delayed_bank, n_dbank, &
+           int(tmp_work,8), tmp_index_delay,tmp_work_delay*2)
+      deallocate(tmp_index)
+      deallocate(tmp_index_delay) 
+      deallocate(prompt_bank)
+      deallocate(delayed_bank)
+    else
+      call prepare_bank(f, work_delay)
       call synchronize_bank_explicit(n_particles,       prompt_bank,  n_pbank, &
            int(   0,8), work_index,      work*3)
       call synchronize_bank_explicit(n_particles_delay, delayed_bank, n_dbank, &
