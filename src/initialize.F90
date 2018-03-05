@@ -589,33 +589,62 @@ contains
     end do TALLY_LOOP
 
   end subroutine adjust_indices
+!===============================================================================
+! SUBSTRACT_BY_PROC determines # of delayed neutrons (n_local2) each processor 
+! should simulate given n_local_total was assigned and now only n_local prompt 
+! ones are assigned. 
+!===============================================================================
+  subroutine substract_by_proc(n_local_total, n_local, n_local2, local_indices2)
+
+    integer    :: i         ! loop index
+    integer(8) :: work_scan ! temp to store scanned work_delay
+    integer(8), intent(in)  :: n_local_total 
+    integer(8), intent(in)  :: n_local 
+    integer(8), intent(out) :: n_local2 
+    integer(8),dimension(0:), intent(out) :: local_indices2 
+    local_indices2(0) = 0
+    n_local2 = n_local_total - n_local
+
+#ifdef MPI
+    call MPI_SCAN(n_local2, work_scan, 1, MPI_INTEGER8, MPI_SUM, &
+         mpi_intracomm, mpi_err)
+    local_indices2(rank+1) = work_scan; 
+
+    do i = 0, n_procs - 1
+      call MPI_BCAST(local_indices2(i+1), 1, MPI_INTEGER8, i, &
+           mpi_intracomm, mpi_err)
+    end do
+
+#else 
+    local_indices2(rank+1) = n_local2 
+#endif
+
+  end subroutine substract_by_proc
 
 !===============================================================================
-! CALCULATE_WORK determines how many particles each processor should simulate
+! DIVIDE_BY_PROC assigns n_total into n_proc, 
+!                the first several ones have one more than others
 !===============================================================================
-
-  subroutine calculate_work()
+  subroutine divide_by_proc(n_total, n_local, local_indices)
 
     integer    :: i         ! loop index
     integer    :: remainder ! Number of processors with one extra particle
     integer(8) :: i_bank    ! Running count of number of particles
     integer(8) :: min_work  ! Minimum number of particles on each proc
     integer(8) :: work_i    ! Number of particles on rank i
-    integer(8) :: work_old  ! Number of particles on rank i before splitting for delay
-    integer(8) :: work_scan ! temp to store scanned work_delay
 
-    !saving work to calculate work_i_delay = work_i_old - work_i
-    work_old = work; 
-    if(.not. allocated(work_index)) allocate(work_index(0:n_procs))
+    integer(8),intent(in)  :: n_total
+    integer(8),intent(out) :: n_local
+    integer(8),dimension(0:), intent(out) :: local_indices
 
     ! Determine minimum amount of particles to simulate on each processor
-    min_work = n_particles/n_procs
+    min_work = n_total/n_procs
 
     ! Determine number of processors that have one extra particle
-    remainder = int(mod(n_particles, int(n_procs,8)), 4)
+    remainder = int(mod(n_total, int(n_procs,8)), 4)
 
     i_bank = 0
-    work_index(0) = 0
+    local_indices(0) = 0
     do i = 0, n_procs - 1
       ! Number of particles for rank i
       if (i < remainder) then
@@ -625,33 +654,35 @@ contains
       end if
 
       ! Set number of particles
-      if (rank == i) work = work_i
+      if (rank == i) n_local = work_i
 
       ! Set index into source bank for rank i
       i_bank = i_bank + work_i
-      work_index(i+1) = i_bank
+      local_indices(i+1) = i_bank
     end do
+
+  end subroutine divide_by_proc
+!===============================================================================
+! CALCULATE_WORK determines how many particles each processor should simulate
+!===============================================================================
+
+  subroutine calculate_work()
+
+    integer(8) :: work_old  ! Number of particles on rank i before splitting for delay
+
+    !saving work to calculate work_i_delay = work_i_old - work_i
+    !work_old is undefined when called during initialization 
+    !work_old = work when called during transition to delayed scheme
+    work_old = work; 
+    if(.not. allocated(work_index)) allocate(work_index(0:n_procs))
+
+    call divide_by_proc(n_particles, work, work_index) 
 
     if(1 .ne. alpha .and. overall_gen == n_inactive * gen_per_batch ) then 
 
     allocate(work_index_delay(0:n_procs))
 
-    work_index_delay(0) = 0
-    work_delay = work_old - work;
-
-#ifdef MPI
-    call MPI_SCAN(work_delay, work_scan, 1, MPI_INTEGER8, MPI_SUM, &
-         mpi_intracomm, mpi_err)
-    work_index_delay(rank+1) = work_scan; 
-
-    do i = 0, n_procs - 1
-      call MPI_BCAST(work_index_delay(i+1), 1, MPI_INTEGER8, i, &
-           mpi_intracomm, mpi_err)
-    end do
-
-#else 
-    work_index_delay(rank+1) = work_delay
-#endif
+    call substract_by_proc(work_old, work, work_delay, work_index_delay)
 
     endif
 
