@@ -32,6 +32,17 @@ from .nuclide import Nuclide, DecayTuple, ReactionTuple
 ReactionInfo = namedtuple('ReactionInfo', ('mts', 'dadz', 'secondaries'))
 
 REACTIONS = {
+    #reactions of incident proton
+    #secondary has n and p, not sure how they are used
+    '(p,np)': ReactionInfo({28}, (-1, 0), ('H1',)),
+    '(p,n)':ReactionInfo(set(range(50,92)), (0, -1), ()),
+    '(p,gamma)': ReactionInfo({102}, (1, 1), ()),
+    '(p,2p)': ReactionInfo({111}, (-1, -1), ('H1', 'H1')),
+    '(p,d)': ReactionInfo(set(chain([104], range(650, 700))), (-1, 0), ('H2',)),
+    '(p,t)': ReactionInfo(set(chain([105], range(700, 750))), (-2, 0), ('H3',)),
+    '(p,3He)': ReactionInfo(set(chain([106], range(750, 800))), (-2, -1), ('He3',)),
+    '(p,a)': ReactionInfo(set(chain([107], range(800, 850))), (-3, -1), ('He4',)),
+    #reactions of incident neutron
     '(n,2nd)': ReactionInfo({11}, (-3, -1), ('H2',)),
     '(n,2n)': ReactionInfo(set(chain([16], range(875, 892))), (-1, 0), ()),
     '(n,3n)': ReactionInfo({17}, (-2, 0), ()),
@@ -297,6 +308,7 @@ class Chain:
 
     @classmethod
     def from_endf(cls, decay_files, fpy_files, neutron_files,
+        proton_files,
         reactions=('(n,2n)', '(n,3n)', '(n,4n)', '(n,gamma)', '(n,p)', '(n,a)'),
         progress=True
     ):
@@ -314,6 +326,8 @@ class Chain:
         fpy_files : list of str or openmc.data.endf.Evaluation
             List of ENDF neutron-induced fission product yield sub-library files
         neutron_files : list of str or openmc.data.endf.Evaluation
+            List of ENDF neutron reaction sub-library files
+        proton_files : list of str or openmc.data.endf.Evaluation
             List of ENDF neutron reaction sub-library files
         reactions : iterable of str, optional
             Transmutation reactions to include in the depletion chain, e.g.,
@@ -357,6 +371,20 @@ class Chain:
                     openmc.data.endf.get_head_record(file_obj)
                     q_value = openmc.data.endf.get_cont_record(file_obj)[1]
                     reactions[name][mt] = q_value
+
+        if progress:
+            print('Processing proton sub-library files...')
+        reactions_proton = {}
+        for f in proton_files:
+            evaluation = openmc.data.endf.Evaluation(f)
+            name = evaluation.gnds_name
+            reactions_proton[name] = {}
+            for mf, mt, nc, mod in evaluation.reaction_list:
+                if mf == 3:
+                    file_obj = StringIO(evaluation.section[3, mt])
+                    openmc.data.endf.get_head_record(file_obj)
+                    q_value = openmc.data.endf.get_cont_record(file_obj)[1]
+                    reactions_proton[name][mt] = q_value
 
         # Determine what decay and FPY nuclides are available
         if progress:
