@@ -35,7 +35,7 @@ REACTIONS = {
     #reactions of incident proton
     #secondary has n and p, not sure how they are used
     '(p,np)': ReactionInfo({28}, (-1, 0), ('H1',)),
-    '(p,n)':ReactionInfo(set(range(50,92)), (0, -1), ()),
+    '(p,n)':ReactionInfo(set(range(50,92)), (0, 1), ()),
     '(p,gamma)': ReactionInfo({102}, (1, 1), ()),
     '(p,2p)': ReactionInfo({111}, (-1, -1), ('H1', 'H1')),
     '(p,d)': ReactionInfo(set(chain([104], range(650, 700))), (-1, 0), ('H2',)),
@@ -309,7 +309,8 @@ class Chain:
     @classmethod
     def from_endf(cls, decay_files, fpy_files, neutron_files,
         proton_files,
-        reactions=('(n,2n)', '(n,3n)', '(n,4n)', '(n,gamma)', '(n,p)', '(n,a)'),
+        neutron_transmutation_reactions=('(n,2n)', '(n,3n)', '(n,4n)', '(n,gamma)', '(n,p)', '(n,a)'),
+        proton_transmutation_reactions=(),
         progress=True
     ):
         """Create a depletion chain from ENDF files.
@@ -329,13 +330,16 @@ class Chain:
             List of ENDF neutron reaction sub-library files
         proton_files : list of str or openmc.data.endf.Evaluation
             List of ENDF neutron reaction sub-library files
-        reactions : iterable of str, optional
+        neutron_transmutation_reactions : iterable of str, optional
             Transmutation reactions to include in the depletion chain, e.g.,
             `["(n,2n)", "(n,gamma)"]`. Note that fission is always included if
             it is present. A complete listing of transmutation reactions can be
             found in :data:`openmc.deplete.chain.REACTIONS`.
 
             .. versionadded:: 0.12.1
+        proton_transmutation_reactions : iterable of str, optional
+            proton induced transmutation reactions to include in the depletion chain, e.g.,
+            `["(p,a)", "(p,gamma)"]`.
         progress : bool, optional
             Flag to print status messages during processing. Does not
             effect warning messages
@@ -355,7 +359,6 @@ class Chain:
         3. Copy the yields of U235 if the previous two checks fail
 
         """
-        transmutation_reactions = reactions
 
         # Create dictionary mapping target to filename
         if progress:
@@ -445,19 +448,17 @@ class Chain:
             fissionable = False
             if parent in reactions:
                 reactions_available = set(reactions[parent].keys())
-                for name in transmutation_reactions:
+                for name in neutron_transmutation_reactions:
                     mts, changes, _ = REACTIONS[name]
                     if mts & reactions_available:
                         delta_A, delta_Z = changes
                         A = data.nuclide['mass_number'] + delta_A
                         Z = data.nuclide['atomic_number'] + delta_Z
                         daughter = '{}{}'.format(openmc.data.ATOMIC_SYMBOL[Z], A)
-
                         if daughter not in decay_data:
                             daughter = replace_missing(daughter, decay_data)
                             if daughter is None:
                                 missing_rx_product.append((parent, name, daughter))
-
                         # Store Q value
                         for mt in sorted(mts):
                             if mt in reactions[parent]:
@@ -473,6 +474,41 @@ class Chain:
                     nuclide.add_reaction('fission', None, q_value, 1.0)
                     fissionable = True
 
+            #repeat the same for transmutation reactions of incident proton
+            #could generalize with iterables of incident particles (neutron,proton, etc)
+            #each block takes
+            #    reactions[neutron,proton,etc][parent][mt]
+            #    transmutation_names[neutron,proton,etc]
+            proton_fissionable = False
+            if parent in reactions_proton:
+                reactions_available = set(reactions_proton[parent].keys())
+                for name in proton_transmutation_reactions:
+                    mts, changes, _ = REACTIONS[name]
+                    if mts & reactions_available:
+                        delta_A, delta_Z = changes
+                        A = data.nuclide['mass_number'] + delta_A
+                        Z = data.nuclide['atomic_number'] + delta_Z
+                        daughter = '{}{}'.format(openmc.data.ATOMIC_SYMBOL[Z], A)
+
+                        if daughter not in decay_data:
+                            daughter = replace_missing(daughter, decay_data)
+                            if daughter is None:
+                                missing_rx_product.append((parent, name, daughter))
+
+                        # Store Q value
+                        for mt in sorted(mts):
+                            if mt in reactions_proton[parent]:
+                                q_value = reactions_proton[parent][mt]
+                                break
+                        else:
+                            q_value = 0.0
+
+                        nuclide.add_reaction(name, daughter, q_value, 1.0)
+
+                if any(mt in reactions_available for mt in openmc.data.FISSION_MTS):
+                    q_value = reactions_proton[parent][18]
+                    nuclide.add_reaction('proton induced fission', None, q_value, 1.0)
+                    fissionable_proton = True
 
             if fissionable:
                 if parent in fpy_data:
