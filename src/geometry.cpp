@@ -174,17 +174,9 @@ bool find_cell_inner(
 
       // Set the material and temperature.
       p.material_last() = p.material();
-      if (c.material_.size() > 1) {
-        p.material() = c.material_[p.cell_instance()];
-      } else {
-        p.material() = c.material_[0];
-      }
+      p.material() = c.material(p.cell_instance());
       p.sqrtkT_last() = p.sqrtkT();
-      if (c.sqrtkT_.size() > 1) {
-        p.sqrtkT() = c.sqrtkT_[p.cell_instance()];
-      } else {
-        p.sqrtkT() = c.sqrtkT_[0];
-      }
+      p.sqrtkT() = c.sqrtkT(p.cell_instance());
 
       return true;
 
@@ -429,15 +421,15 @@ BoundaryInfo distance_to_boundary(GeometryState& p)
         // have to explicitly check which half-space the particle would be
         // traveling into if the surface is crossed
         if (c.is_simple() || d == INFTY) {
-          info.surface_index = level_surf_cross;
+          info.surface = level_surf_cross;
         } else {
           Position r_hit = r + d_surf * u;
           Surface& surf {*model::surfaces[std::abs(level_surf_cross) - 1]};
           Direction norm = surf.normal(r_hit);
           if (u.dot(norm) > 0) {
-            info.surface_index = std::abs(level_surf_cross);
+            info.surface = std::abs(level_surf_cross);
           } else {
-            info.surface_index = -std::abs(level_surf_cross);
+            info.surface = -std::abs(level_surf_cross);
           }
         }
 
@@ -449,7 +441,7 @@ BoundaryInfo distance_to_boundary(GeometryState& p)
     } else {
       if (d == INFINITY || (d - d_lat) / d >= FP_REL_PRECISION) {
         d = d_lat;
-        info.surface_index = 0;
+        info.surface = SURFACE_NONE;
         info.lattice_translation = level_lat_trans;
         info.coord_level = i + 1;
       }

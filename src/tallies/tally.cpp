@@ -26,6 +26,7 @@
 #include "openmc/tallies/filter_energy.h"
 #include "openmc/tallies/filter_legendre.h"
 #include "openmc/tallies/filter_mesh.h"
+#include "openmc/tallies/filter_meshborn.h"
 #include "openmc/tallies/filter_meshsurface.h"
 #include "openmc/tallies/filter_particle.h"
 #include "openmc/tallies/filter_sph_harm.h"
@@ -38,7 +39,8 @@
 #include <fmt/core.h>
 
 #include <algorithm> // for max
-#include <cstddef>   // for size_t
+#include <cassert>
+#include <cstddef> // for size_t
 #include <string>
 
 namespace openmc {
@@ -139,7 +141,7 @@ Tally::Tally(pugi::xml_node node)
   // Check for the presence of certain filter types
   bool has_energyout = energyout_filter_ >= 0;
   int particle_filter_index = C_NONE;
-  for (gsl::index j = 0; j < filters_.size(); ++j) {
+  for (int64_t j = 0; j < filters_.size(); ++j) {
     int i_filter = filters_[j];
     const auto& f = model::tally_filters[i_filter].get();
 
@@ -176,6 +178,64 @@ Tally::Tally(pugi::xml_node node)
 
   if (!check_for_node(node, "scores")) {
     fatal_error(fmt::format("No scores specified on tally {}.", id_));
+  }
+
+  // Set IFP if needed
+  if (!settings::ifp_on) {
+    // Determine if this tally has an IFP score
+    bool has_ifp_score = false;
+    for (int score : scores_) {
+      if (score == SCORE_IFP_TIME_NUM || score == SCORE_IFP_BETA_NUM ||
+          score == SCORE_IFP_DENOM) {
+        has_ifp_score = true;
+        break;
+      }
+    }
+
+    // Check for errors
+    if (has_ifp_score) {
+      if (settings::run_mode == RunMode::EIGENVALUE) {
+        if (settings::ifp_n_generation < 0) {
+          settings::ifp_n_generation = DEFAULT_IFP_N_GENERATION;
+          warning(fmt::format(
+            "{} generations will be used for IFP (default value). It can be "
+            "changed using the 'ifp_n_generation' settings.",
+            settings::ifp_n_generation));
+        }
+        if (settings::ifp_n_generation > settings::n_inactive) {
+          fatal_error("'ifp_n_generation' must be lower than or equal to the "
+                      "number of inactive cycles.");
+        }
+        settings::ifp_on = true;
+      } else {
+        fatal_error(
+          "Iterated Fission Probability can only be used in an eigenvalue "
+          "calculation.");
+      }
+    }
+  }
+
+  // Set IFP parameters if needed
+  if (settings::ifp_on) {
+    for (int score : scores_) {
+      switch (score) {
+      case SCORE_IFP_TIME_NUM:
+        if (settings::ifp_parameter == IFPParameter::None) {
+          settings::ifp_parameter = IFPParameter::GenerationTime;
+        } else if (settings::ifp_parameter == IFPParameter::BetaEffective) {
+          settings::ifp_parameter = IFPParameter::Both;
+        }
+        break;
+      case SCORE_IFP_BETA_NUM:
+      case SCORE_IFP_DENOM:
+        if (settings::ifp_parameter == IFPParameter::None) {
+          settings::ifp_parameter = IFPParameter::BetaEffective;
+        } else if (settings::ifp_parameter == IFPParameter::GenerationTime) {
+          settings::ifp_parameter = IFPParameter::Both;
+        }
+        break;
+      }
+    }
   }
 
   // Check if tally is compatible with particle type
@@ -344,7 +404,7 @@ Tally* Tally::create(int32_t id)
 
 void Tally::set_id(int32_t id)
 {
-  Expects(id >= 0 || id == C_NONE);
+  assert(id >= 0 || id == C_NONE);
 
   // Clear entry in tally map if an ID was already assigned before
   if (id_ != C_NONE) {
@@ -400,7 +460,7 @@ bool Tally::has_filter(FilterType filter_type) const
   return false;
 }
 
-void Tally::set_filters(gsl::span<Filter*> filters)
+void Tally::set_filters(span<Filter*> filters)
 {
   // Clear old data.
   filters_.clear();
@@ -583,7 +643,12 @@ void Tally::set_scores(const vector<std::string>& scores)
           }
         }
       }
+      break;
 
+    case SCORE_IFP_TIME_NUM:
+    case SCORE_IFP_BETA_NUM:
+    case SCORE_IFP_DENOM:
+      estimator_ = TallyEstimator::COLLISION;
       break;
     }
 
@@ -689,6 +754,12 @@ void Tally::init_triggers(pugi::xml_node node)
         "Must specify trigger threshold for tally {} in tally XML file", id_));
     }
 
+    // Read whether to allow zero-tally bins to be ignored.
+    bool ignore_zeros = false;
+    if (check_for_node(trigger_node, "ignore_zeros")) {
+      ignore_zeros = get_node_value_bool(trigger_node, "ignore_zeros");
+    }
+
     // Read the trigger scores.
     vector<std::string> trigger_scores;
     if (check_for_node(trigger_node, "scores")) {
@@ -702,12 +773,12 @@ void Tally::init_triggers(pugi::xml_node node)
       if (score_str == "all") {
         triggers_.reserve(triggers_.size() + this->scores_.size());
         for (auto i_score = 0; i_score < this->scores_.size(); ++i_score) {
-          triggers_.push_back({metric, threshold, i_score});
+          triggers_.push_back({metric, threshold, ignore_zeros, i_score});
         }
       } else {
         int i_score = 0;
         for (; i_score < this->scores_.size(); ++i_score) {
-          if (reaction_name(this->scores_[i_score]) == score_str)
+          if (this->scores_[i_score] == reaction_type(score_str))
             break;
         }
         if (i_score == this->scores_.size()) {
@@ -716,7 +787,7 @@ void Tally::init_triggers(pugi::xml_node node)
                         "{} but it was listed in a trigger on that tally",
               score_str, id_));
         }
-        triggers_.push_back({metric, threshold, i_score});
+        triggers_.push_back({metric, threshold, ignore_zeros, i_score});
       }
     }
   }
@@ -745,9 +816,7 @@ void Tally::accumulate()
     // Calculate total source strength for normalization
     double total_source = 0.0;
     if (settings::run_mode == RunMode::FIXED_SOURCE) {
-      for (const auto& s : model::external_sources) {
-        total_source += s->strength();
-      }
+      total_source = model::external_sources_probability.integral();
     } else {
       total_source = 1.0;
     }
@@ -755,6 +824,10 @@ void Tally::accumulate()
     // Account for number of source particles in normalization
     double norm =
       total_source / (settings::n_particles * settings::gen_per_batch);
+
+    if (settings::solver_type == SolverType::RANDOM_RAY) {
+      norm = 1.0;
+    }
 
 // Accumulate each result
 #pragma omp parallel for
@@ -952,8 +1025,9 @@ void accumulate_tallies()
 {
 #ifdef OPENMC_MPI
   // Combine tally results onto master process
-  if (mpi::n_procs > 1)
+  if (mpi::n_procs > 1 && settings::solver_type == SolverType::MONTE_CARLO) {
     reduce_tally_results();
+  }
 #endif
 
   // Increase number of realizations (only used for global tallies)
@@ -1357,7 +1431,7 @@ extern "C" int openmc_tally_set_filters(
   try {
     // Convert indices to filter pointers
     vector<Filter*> filters;
-    for (gsl::index i = 0; i < n; ++i) {
+    for (int64_t i = 0; i < n; ++i) {
       int32_t i_filt = indices[i];
       filters.push_back(model::tally_filters.at(i_filt).get());
     }

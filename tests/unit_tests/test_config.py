@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 import os
+from pathlib import Path
 
 import openmc
 import pytest
@@ -19,7 +20,10 @@ def test_config_basics():
     assert isinstance(openmc.config, Mapping)
     for key, value in openmc.config.items():
         assert isinstance(key, str)
-        assert isinstance(value, os.PathLike)
+        if key == 'resolve_paths':
+            assert isinstance(value, bool)
+        else:
+            assert isinstance(value, os.PathLike)
 
     # Set and delete
     openmc.config['cross_sections'] = '/path/to/cross_sections.xml'
@@ -30,6 +34,19 @@ def test_config_basics():
     # Can't use any key
     with pytest.raises(KeyError):
         openmc.config['🐖'] = '/like/to/eat/bacon'
+
+    # ensure relative paths are expanded into absolute
+    # paths
+    chain_path = Path('./chain.xml')
+    openmc.config['chain_file'] = chain_path
+    assert openmc.config['chain_file'] == chain_path.resolve()
+
+
+def test_config_patch():
+    openmc.config['cross_sections'] = '/path/to/cross_sections.xml'
+    with openmc.config.patch('cross_sections', '/path/to/other.xml'):
+        assert str(openmc.config['cross_sections']) == '/path/to/other.xml'
+    assert str(openmc.config['cross_sections']) == '/path/to/cross_sections.xml'
 
 
 def test_config_set_envvar():

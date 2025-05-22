@@ -6,7 +6,6 @@
 #include <unordered_map>
 
 #include "pugixml.hpp"
-#include <gsl/gsl-lite.hpp>
 
 #include "openmc/constants.h"
 #include "openmc/hdf5_interface.h"
@@ -33,8 +32,11 @@ enum class FilterType {
   MATERIAL,
   MATERIALFROM,
   MESH,
+  MESHBORN,
   MESH_SURFACE,
   MU,
+  MUSURFACE,
+  PARENT_NUCLIDE,
   PARTICLE,
   POLAR,
   SPHERICAL_HARMONICS,
@@ -42,6 +44,7 @@ enum class FilterType {
   SURFACE,
   TIME,
   UNIVERSE,
+  WEIGHT,
   ZERNIKE,
   ZERNIKE_RADIAL
 };
@@ -128,7 +131,7 @@ public:
   //! \return Number of bins
   int n_bins() const { return n_bins_; }
 
-  gsl::index index() const { return index_; }
+  int64_t index() const { return index_; }
 
   //----------------------------------------------------------------------------
   // Data members
@@ -138,7 +141,7 @@ protected:
 
 private:
   int32_t id_ {C_NONE};
-  gsl::index index_;
+  int64_t index_;
 };
 
 //==============================================================================

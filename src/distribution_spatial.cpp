@@ -26,6 +26,8 @@ unique_ptr<SpatialDistribution> SpatialDistribution::create(pugi::xml_node node)
     return UPtrSpace {new SphericalIndependent(node)};
   } else if (type == "mesh") {
     return UPtrSpace {new MeshSpatial(node)};
+  } else if (type == "cloud") {
+    return UPtrSpace {new PointCloud(node)};
   } else if (type == "box") {
     return UPtrSpace {new SpatialBox(node)};
   } else if (type == "fission") {
@@ -260,7 +262,7 @@ MeshSpatial::MeshSpatial(pugi::xml_node node)
   elem_idx_dist_.assign(strengths);
 }
 
-MeshSpatial::MeshSpatial(int32_t mesh_idx, gsl::span<const double> strengths)
+MeshSpatial::MeshSpatial(int32_t mesh_idx, span<const double> strengths)
   : mesh_idx_(mesh_idx)
 {
   check_element_types();
@@ -281,16 +283,64 @@ void MeshSpatial::check_element_types() const
   }
 }
 
+int32_t MeshSpatial::sample_element_index(uint64_t* seed) const
+{
+  return elem_idx_dist_.sample(seed);
+}
+
 std::pair<int32_t, Position> MeshSpatial::sample_mesh(uint64_t* seed) const
 {
   // Sample the CDF defined in initialization above
-  int32_t elem_idx = elem_idx_dist_.sample(seed);
+  int32_t elem_idx = this->sample_element_index(seed);
   return {elem_idx, mesh()->sample_element(elem_idx, seed)};
 }
 
 Position MeshSpatial::sample(uint64_t* seed) const
 {
   return this->sample_mesh(seed).second;
+}
+
+//==============================================================================
+// PointCloud implementation
+//==============================================================================
+
+PointCloud::PointCloud(pugi::xml_node node)
+{
+  if (check_for_node(node, "coords")) {
+    point_cloud_ = get_node_position_array(node, "coords");
+  } else {
+    fatal_error("No coordinates were provided for the PointCloud "
+                "spatial distribution");
+  }
+
+  std::vector<double> strengths;
+
+  if (check_for_node(node, "strengths"))
+    strengths = get_node_array<double>(node, "strengths");
+  else
+    strengths.resize(point_cloud_.size(), 1.0);
+
+  if (strengths.size() != point_cloud_.size()) {
+    fatal_error(
+      fmt::format("Number of entries for the strengths array {} does "
+                  "not match the number of spatial points provided {}.",
+        strengths.size(), point_cloud_.size()));
+  }
+
+  point_idx_dist_.assign(strengths);
+}
+
+PointCloud::PointCloud(
+  std::vector<Position> point_cloud, span<const double> strengths)
+{
+  point_cloud_.assign(point_cloud.begin(), point_cloud.end());
+  point_idx_dist_.assign(strengths);
+}
+
+Position PointCloud::sample(uint64_t* seed) const
+{
+  int32_t index = point_idx_dist_.sample(seed);
+  return point_cloud_[index];
 }
 
 //==============================================================================

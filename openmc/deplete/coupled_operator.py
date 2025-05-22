@@ -10,7 +10,6 @@ filesystem.
 
 import copy
 from warnings import warn
-from typing import Optional
 
 import numpy as np
 from uncertainties import ufloat
@@ -34,7 +33,7 @@ from .helpers import (
 __all__ = ["CoupledOperator", "Operator", "OperatorResult"]
 
 
-def _find_cross_sections(model: Optional[str] = None):
+def _find_cross_sections(model: str | None = None):
     """Determine cross sections to use for depletion
 
     Parameters
@@ -155,15 +154,9 @@ class CoupledOperator(OpenMCOperator):
         options.
 
         .. versionadded:: 0.12.1
-    reduce_chain : bool, optional
-        If True, use :meth:`openmc.deplete.Chain.reduce` to reduce the
-        depletion chain up to ``reduce_chain_level``.
-
-        .. versionadded:: 0.12
     reduce_chain_level : int, optional
-        Depth of the search when reducing the depletion chain. Only used
-        if ``reduce_chain`` evaluates to true. The default value of
-        ``None`` implies no limit on the depth.
+        Depth of the search when reducing the depletion chain. The default
+        value of ``None`` implies no limit on the depth.
 
         .. versionadded:: 0.12
     diff_volume_method : str
@@ -215,7 +208,7 @@ class CoupledOperator(OpenMCOperator):
                  normalization_mode="fission-q", fission_q=None,
                  fission_yield_mode="constant", fission_yield_opts=None,
                  reaction_rate_mode="direct", reaction_rate_opts=None,
-                 reduce_chain=False, reduce_chain_level=None):
+                 reduce_chain_level=None):
 
         # check for old call to constructor
         if isinstance(model, openmc.Geometry):
@@ -271,7 +264,6 @@ class CoupledOperator(OpenMCOperator):
             diff_volume_method=diff_volume_method,
             fission_q=fission_q,
             helper_kwargs=helper_kwargs,
-            reduce_chain=reduce_chain,
             reduce_chain_level=reduce_chain_level)
 
     def _differentiate_burnable_mats(self):
@@ -291,7 +283,7 @@ class CoupledOperator(OpenMCOperator):
         # on this process
         if comm.size != 1:
             prev_results = self.prev_res
-            self.prev_res = Results(None)
+            self.prev_res = Results(filename=None)
             mat_indexes = _distribute(range(len(self.burnable_mats)))
             for res_obj in prev_results:
                 new_res = res_obj.distribute(self.local_mats, mat_indexes)
@@ -518,7 +510,7 @@ class CoupledOperator(OpenMCOperator):
 
         """
         openmc.lib.statepoint_write(
-            "openmc_simulation_n{}.h5".format(step),
+            f"openmc_simulation_n{step}.h5",
             write_source=False)
 
     def finalize(self):
