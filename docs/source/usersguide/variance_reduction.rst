@@ -133,8 +133,7 @@ random ray mode can be found in the :ref:`Random Ray User Guide <random_ray>`.
        # we used for source region decomposition
        wwg = openmc.WeightWindowGenerator(
            method='fw_cadis',
-           mesh=mesh,
-           max_realizations=settings.batches
+           mesh=mesh
        )
 
        # Add generator to openmc.settings object
@@ -162,7 +161,7 @@ solver, the Python input just needs to load the h5 file::
 
     settings.weight_window_checkpoints = {'collision': True, 'surface': True}
     settings.survival_biasing = False
-    settings.weight_windows = openmc.hdf5_to_wws('weight_windows.h5')
+    settings.weight_windows = openmc.WeightWindowsList.from_hdf5('weight_windows.h5')
     settings.weight_windows_on = True
 
 The :class:`~openmc.WeightWindowGenerator` instance is not needed to load an

@@ -37,7 +37,6 @@ Simulation Settings
 
    openmc.read_source_file
    openmc.write_source_file
-   openmc.wwinp_to_wws
 
 Material Specification
 ----------------------
@@ -129,6 +128,7 @@ Constructing Tallies
    openmc.SurfaceFilter
    openmc.MeshFilter
    openmc.MeshBornFilter
+   openmc.MeshMaterialFilter
    openmc.MeshSurfaceFilter
    openmc.EnergyFilter
    openmc.EnergyoutFilter
@@ -216,6 +216,9 @@ Post-processing
    :nosignatures:
    :template: myfunction.rst
 
+   openmc.read_collision_track_file
+   openmc.read_collision_track_hdf5
+   openmc.read_collision_track_mcpl
    openmc.voxel_to_vtk
 
 The following classes and functions are used for functional expansion reconstruction.
@@ -258,8 +261,16 @@ Variance Reduction
    :template: myclass
 
    openmc.WeightWindows
+   openmc.WeightWindowsList
    openmc.WeightWindowGenerator
+
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+   :template: myfunction.rst
+
    openmc.hdf5_to_wws
+   openmc.wwinp_to_wws
 
 
 Coarse Mesh Finite Difference Acceleration

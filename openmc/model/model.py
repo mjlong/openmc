@@ -1,18 +1,21 @@
 from __future__ import annotations
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 import copy
-from functools import lru_cache
+from dataclasses import dataclass, field
+from functools import cache
 from pathlib import Path
 import math
 from numbers import Integral, Real
 import random
 import re
 from tempfile import NamedTemporaryFile, TemporaryDirectory
+from typing import Any, Protocol
 import warnings
 
 import h5py
 import lxml.etree as ET
 import numpy as np
+from scipy.optimize import curve_fit
 
 import openmc
 import openmc._xml as xml
@@ -20,8 +23,14 @@ from openmc.dummy_comm import DummyCommunicator
 from openmc.executor import _process_CLI_arguments
 from openmc.checkvalue import check_type, check_value, PathLike
 from openmc.exceptions import InvalidIDError
-from openmc.plots import add_plot_params
+from openmc.plots import add_plot_params, _BASIS_INDICES
 from openmc.utility_funcs import change_directory
+
+
+# Protocol for a function that is passed to search_keff
+class ModelModifier(Protocol):
+    def __call__(self, val: float, **kwargs: Any) -> None:
+        ...
 
 
 class Model:
@@ -70,7 +79,7 @@ class Model:
     def __init__(
         self,
         geometry: openmc.Geometry | None = None,
-        materials: openmc.Materials = None,
+        materials: openmc.Materials | None = None,
         settings: openmc.Settings | None = None,
         tallies: openmc.Tallies | None = None,
         plots: openmc.Plots | None = None,
@@ -82,7 +91,7 @@ class Model:
         self.plots = openmc.Plots() if plots is None else plots
 
     @property
-    def geometry(self) -> openmc.Geometry | None:
+    def geometry(self) -> openmc.Geometry:
         return self._geometry
 
     @geometry.setter
@@ -91,7 +100,7 @@ class Model:
         self._geometry = geometry
 
     @property
-    def materials(self) -> openmc.Materials | None:
+    def materials(self) -> openmc.Materials:
         return self._materials
 
     @materials.setter
@@ -100,12 +109,14 @@ class Model:
         if isinstance(materials, openmc.Materials):
             self._materials = materials
         else:
+            if not hasattr(self, '_materials'):
+                self._materials = openmc.Materials()
             del self._materials[:]
             for mat in materials:
                 self._materials.append(mat)
 
     @property
-    def settings(self) -> openmc.Settings | None:
+    def settings(self) -> openmc.Settings:
         return self._settings
 
     @settings.setter
@@ -114,7 +125,7 @@ class Model:
         self._settings = settings
 
     @property
-    def tallies(self) -> openmc.Tallies | None:
+    def tallies(self) -> openmc.Tallies:
         return self._tallies
 
     @tallies.setter
@@ -123,12 +134,14 @@ class Model:
         if isinstance(tallies, openmc.Tallies):
             self._tallies = tallies
         else:
+            if not hasattr(self, '_tallies'):
+                self._tallies = openmc.Tallies()
             del self._tallies[:]
             for tally in tallies:
                 self._tallies.append(tally)
 
     @property
-    def plots(self) -> openmc.Plots | None:
+    def plots(self) -> openmc.Plots:
         return self._plots
 
     @plots.setter
@@ -137,6 +150,8 @@ class Model:
         if isinstance(plots, openmc.Plots):
             self._plots = plots
         else:
+            if not hasattr(self, '_plots'):
+                self._plots = openmc.Plots()
             del self._plots[:]
             for plot in plots:
                 self._plots.append(plot)
@@ -154,7 +169,7 @@ class Model:
             return False
 
     @property
-    @lru_cache(maxsize=None)
+    @cache
     def _materials_by_id(self) -> dict:
         """Dictionary mapping material ID --> material"""
         if self.materials:
@@ -164,14 +179,14 @@ class Model:
         return {mat.id: mat for mat in mats}
 
     @property
-    @lru_cache(maxsize=None)
+    @cache
     def _cells_by_id(self) -> dict:
         """Dictionary mapping cell ID --> cell"""
         cells = self.geometry.get_all_cells()
         return {cell.id: cell for cell in cells.values()}
 
     @property
-    @lru_cache(maxsize=None)
+    @cache
     def _cells_by_name(self) -> dict[int, openmc.Cell]:
         # Get the names maps, but since names are not unique, store a set for
         # each name key. In this way when the user requests a change by a name,
@@ -184,7 +199,7 @@ class Model:
         return result
 
     @property
-    @lru_cache(maxsize=None)
+    @cache
     def _materials_by_name(self) -> dict[int, openmc.Material]:
         if self.materials is None:
             mats = self.geometry.get_all_materials().values()
@@ -196,6 +211,60 @@ class Model:
                 result[mat.name] = set()
             result[mat.name].add(mat)
         return result
+
+    # TODO: This should really get incorporated in lower-level calls to
+    # get_all_materials, but right now it requires information from the Model object
+    def _get_all_materials(self) -> dict[int, openmc.Material]:
+        """Get all materials including those in DAGMC universes
+
+        Returns
+        -------
+        dict
+            Dictionary mapping material ID to material instances
+        """
+        # Get all materials from the Geometry object
+        materials = self.geometry.get_all_materials()
+
+        # Account for materials in DAGMC universes
+        for cell in self.geometry.get_all_cells().values():
+            if isinstance(cell.fill, openmc.DAGMCUniverse):
+                names = cell.fill.material_names
+                materials.update({
+                    mat.id: mat for mat in self.materials if mat.name in names
+                })
+
+        return materials
+
+    def add_kinetics_parameters_tallies(self, num_groups: int | None = None):
+        """Add tallies for calculating kinetics parameters using the IFP method.
+
+        This method adds tallies to the model for calculating two kinetics
+        parameters, the generation time and the effective delayed neutron
+        fraction (beta effective). After a model is run, these parameters can be
+        determined through the :meth:`openmc.StatePoint.ifp_results` method.
+
+        Parameters
+        ----------
+        num_groups : int, optional
+            Number of precursor groups to filter the delayed neutron fraction.
+            If None, only the total effective delayed neutron fraction is
+            tallied.
+
+        """
+        if not any('ifp-time-numerator' in t.scores for t in self.tallies):
+            gen_time_tally = openmc.Tally(name='IFP time numerator')
+            gen_time_tally.scores = ['ifp-time-numerator']
+            self.tallies.append(gen_time_tally)
+        if not any('ifp-beta-numerator' in t.scores for t in self.tallies):
+            beta_tally = openmc.Tally(name='IFP beta numerator')
+            beta_tally.scores = ['ifp-beta-numerator']
+            if num_groups is not None:
+                beta_tally.filters = [openmc.DelayedGroupFilter(list(range(1, num_groups + 1)))]
+            self.tallies.append(beta_tally)
+        if not any('ifp-denominator' in t.scores for t in self.tallies):
+            denom_tally = openmc.Tally(name='IFP denominator')
+            denom_tally.scores = ['ifp-denominator']
+            self.tallies.append(denom_tally)
 
     @classmethod
     def from_xml(
@@ -627,7 +696,7 @@ class Model:
                 raise ValueError("Number of cells in properties file doesn't "
                                  "match current model.")
 
-            # Update temperatures for cells filled with materials
+            # Update temperatures and densities for cells filled with materials
             for name, group in cells_group.items():
                 cell_id = int(name.split()[1])
                 cell = cells[cell_id]
@@ -641,6 +710,20 @@ class Model:
                                 lib_cell.set_temperature(T, i)
                         else:
                             lib_cell.set_temperature(temperature[0])
+
+                    if group['density']:
+                      density = group['density'][()]
+                      if density.size > 1:
+                          cell.density = [rho for rho in density]
+                      else:
+                          cell.density = density
+                      if self.is_initialized:
+                          lib_cell = openmc.lib.cells[cell_id]
+                          if density.size > 1:
+                              for i, rho in enumerate(density):
+                                  lib_cell.set_density(rho, i)
+                          else:
+                              lib_cell.set_density(density[0])
 
             # Make sure number of materials matches
             mats_group = fh['materials']
@@ -902,6 +985,108 @@ class Model:
                             openmc.lib.materials[domain_id].volume = \
                                 vol_calc.volumes[domain_id].n
 
+
+    def _set_plot_defaults(
+        self,
+        origin: Sequence[float] | None,
+        width: Sequence[float] | None,
+        pixels: int | Sequence[int],
+        basis: str
+    ):
+        x, y, _ = _BASIS_INDICES[basis]
+
+        bb = self.bounding_box
+        # checks to see if bounding box contains -inf or inf values
+        if np.isinf(bb.extent[basis]).any():
+            if origin is None:
+                origin = (0, 0, 0)
+            if width is None:
+                width = (10, 10)
+        else:
+            if origin is None:
+                # if nan values in the bb.center they get replaced with 0.0
+                # this happens when the bounding_box contains inf values
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    origin = np.nan_to_num(bb.center)
+            if width is None:
+                bb_width = bb.width
+                width = (bb_width[x], bb_width[y])
+
+        if isinstance(pixels, int):
+            aspect_ratio = width[0] / width[1]
+            pixels_y = math.sqrt(pixels / aspect_ratio)
+            pixels = (int(pixels / pixels_y), int(pixels_y))
+
+        return origin, width, pixels
+
+    def id_map(
+        self,
+        origin: Sequence[float] | None = None,
+        width: Sequence[float] | None = None,
+        pixels: int | Sequence[int] = 40000,
+        basis: str = 'xy',
+        **init_kwargs
+    ) -> np.ndarray:
+        """Generate an ID map for domains based on the plot parameters
+
+        If the model is not yet initialized, it will be initialized with
+        openmc.lib. If the model is initialized, the model will remain
+        initialized after this method call exits.
+
+        .. versionadded:: 0.15.3
+
+        Parameters
+        ----------
+        origin : Sequence[float], optional
+            Origin of the plot. If unspecified, this argument defaults to the
+            center of the bounding box if the bounding box does not contain inf
+            values for the provided basis, otherwise (0.0, 0.0, 0.0).
+        width : Sequence[float], optional
+            Width of the plot. If unspecified, this argument defaults to the
+            width of the bounding box if the bounding box does not contain inf
+            values for the provided basis, otherwise (10.0, 10.0).
+        pixels : int | Sequence[int], optional
+            If an iterable of ints is provided then this directly sets the
+            number of pixels to use in each basis direction. If a single int is
+            provided then this sets the total number of pixels in the plot and
+            the number of pixels in each basis direction is calculated from this
+            total and the image aspect ratio based on the width argument.
+        basis : {'xy', 'yz', 'xz'}, optional
+            Basis of the plot.
+        **init_kwargs
+            Keyword arguments passed to :meth:`Model.init_lib`.
+
+        Returns
+        -------
+        id_map : numpy.ndarray
+            A NumPy array with shape (vertical pixels, horizontal pixels, 3) of
+            OpenMC property IDs with dtype int32. The last dimension of the
+            array contains cell IDs, cell instances, and material IDs (in that
+            order).
+        """
+        import openmc.lib
+
+        origin, width, pixels = self._set_plot_defaults(
+            origin, width, pixels, basis)
+
+        # initialize the openmc.lib.plot._PlotBase object
+        plot_obj = openmc.lib.plot._PlotBase()
+        plot_obj.origin = origin
+        plot_obj.width = width[0]
+        plot_obj.height = width[1]
+        plot_obj.h_res = pixels[0]
+        plot_obj.v_res = pixels[1]
+        plot_obj.basis = basis
+
+        # Silence output by default. Also set arguments to start in volume
+        # calculation mode to avoid loading cross sections
+        init_kwargs.setdefault('output', False)
+        init_kwargs.setdefault('args', ['-c'])
+
+        with openmc.lib.TemporarySession(self, **init_kwargs):
+            return openmc.lib.id_map(plot_obj)
+
     @add_plot_params
     def plot(
         self,
@@ -945,39 +1130,13 @@ class Model:
             source_kwargs = {}
         source_kwargs.setdefault('marker', 'x')
 
+        # Set indices using basis and create axis labels
+        x, y, z = _BASIS_INDICES[basis]
+        xlabel, ylabel = f'{basis[0]} [{axis_units}]', f'{basis[1]} [{axis_units}]'
+
         # Determine extents of plot
-        if basis == 'xy':
-            x, y, z = 0, 1, 2
-            xlabel, ylabel = f'x [{axis_units}]', f'y [{axis_units}]'
-        elif basis == 'yz':
-            x, y, z = 1, 2, 0
-            xlabel, ylabel = f'y [{axis_units}]', f'z [{axis_units}]'
-        elif basis == 'xz':
-            x, y, z = 0, 2, 1
-            xlabel, ylabel = f'x [{axis_units}]', f'z [{axis_units}]'
-
-        bb = self.bounding_box
-        # checks to see if bounding box contains -inf or inf values
-        if np.isinf(bb.extent[basis]).any():
-            if origin is None:
-                origin = (0, 0, 0)
-            if width is None:
-                width = (10, 10)
-        else:
-            if origin is None:
-                # if nan values in the bb.center they get replaced with 0.0
-                # this happens when the bounding_box contains inf values
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", RuntimeWarning)
-                    origin = np.nan_to_num(bb.center)
-            if width is None:
-                bb_width = bb.width
-                width = (bb_width[x], bb_width[y])
-
-        if isinstance(pixels, int):
-            aspect_ratio = width[0] / width[1]
-            pixels_y = math.sqrt(pixels / aspect_ratio)
-            pixels = (int(pixels / pixels_y), int(pixels_y))
+        origin, width, pixels = self._set_plot_defaults(
+            origin, width, pixels, basis)
 
         axis_scaling_factor = {'km': 0.00001, 'm': 0.01, 'cm': 1, 'mm': 10}
 
@@ -986,7 +1145,16 @@ class Model:
         y_min = (origin[y] - 0.5*width[1]) * axis_scaling_factor[axis_units]
         y_max = (origin[y] + 0.5*width[1]) * axis_scaling_factor[axis_units]
 
+        # Determine whether any materials contains macroscopic data and if so,
+        # set energy mode accordingly
+        _energy_mode = self.settings._energy_mode
+        for mat in self.geometry.get_all_materials().values():
+            if mat._macroscopic is not None:
+                self.settings.energy_mode = 'multi-group'
+                break
+
         with TemporaryDirectory() as tmpdir:
+            _plot_seed = self.settings.plot_seed
             if seed is not None:
                 self.settings.plot_seed = seed
 
@@ -1006,6 +1174,11 @@ class Model:
 
             # Run OpenMC in geometry plotting mode
             self.plot_geometry(False, cwd=tmpdir, openmc_exec=openmc_exec)
+
+            # Undo changes to model
+            self.plots.pop()
+            self.settings._plot_seed = _plot_seed
+            self.settings._energy_mode = _energy_mode
 
             # Read image from file
             img_path = Path(tmpdir) / f'plot_{plot.id}.png'
@@ -1110,10 +1283,10 @@ class Model:
         return axes
 
     def sample_external_source(
-            self,
-            n_samples: int = 1000,
-            prn_seed: int | None = None,
-            **init_kwargs
+        self,
+        n_samples: int = 1000,
+        prn_seed: int | None = None,
+        **init_kwargs
     ) -> openmc.ParticleList:
         """Sample external source and return source particles.
 
@@ -1141,15 +1314,10 @@ class Model:
         init_kwargs.setdefault('output', False)
         init_kwargs.setdefault('args', ['-c'])
 
-        with change_directory(tmpdir=True):
-            # Export model within temporary directory
-            self.export_to_model_xml()
-
-            # Sample external source sites
-            with openmc.lib.run_in_memory(**init_kwargs):
-                return openmc.lib.sample_external_source(
-                    n_samples=n_samples, prn_seed=prn_seed
-                )
+        with openmc.lib.TemporarySession(self, **init_kwargs):
+            return openmc.lib.sample_external_source(
+                n_samples=n_samples, prn_seed=prn_seed
+            )
 
     def apply_tally_results(self, statepoint: PathLike | openmc.StatePoint):
         """Apply results from a statepoint to tally objects on the Model
@@ -1552,7 +1720,6 @@ class Model:
                       "if a material has a k-infinity > 1.0.")
         mgxs_sets = []
         for material in self.materials:
-            openmc.reset_auto_ids()
             model = openmc.Model()
 
             # Set materials on the model
@@ -1624,7 +1791,7 @@ class Model:
             mgxs_lib.build_library()
 
             # Create a "tallies.xml" file for the MGXS Library
-            mgxs_lib.add_to_tallies_file(model.tallies, merge=True)
+            mgxs_lib.add_to_tallies(model.tallies, merge=True)
 
             # Run
             statepoint_filename = model.run(cwd=directory)
@@ -1749,7 +1916,6 @@ class Model:
         directory : str
             Directory to run the simulation in, so as to contain XML files.
         """
-        openmc.reset_auto_ids()
         model = openmc.Model()
         model.materials = self.materials
 
@@ -1814,7 +1980,7 @@ class Model:
         mgxs_lib.build_library()
 
         # Create a "tallies.xml" file for the MGXS Library
-        mgxs_lib.add_to_tallies_file(model.tallies, merge=True)
+        mgxs_lib.add_to_tallies(model.tallies, merge=True)
 
         # Run
         statepoint_filename = model.run(cwd=directory)
@@ -1861,7 +2027,6 @@ class Model:
         directory : PathLike
             Directory to run the simulation in, so as to contain XML files.
         """
-        openmc.reset_auto_ids()
         model = copy.deepcopy(self)
         model.tallies = openmc.Tallies()
 
@@ -1910,7 +2075,7 @@ class Model:
         mgxs_lib.build_library()
 
         # Create a "tallies.xml" file for the MGXS Library
-        mgxs_lib.add_to_tallies_file(model.tallies, merge=True)
+        mgxs_lib.add_to_tallies(model.tallies, merge=True)
 
         # Run
         statepoint_filename = model.run(cwd=directory)
@@ -1973,7 +2138,7 @@ class Model:
             # Make sure all materials have a name, and that the name is a valid HDF5
             # dataset name
             for material in self.materials:
-                if material.name is None:
+                if not material.name or not material.name.strip():
                     material.name = f"material {material.id}"
                 material.name = re.sub(r'[^a-zA-Z0-9]', '_', material.name)
 
@@ -2063,3 +2228,262 @@ class Model:
 
         # Take a wild guess as to how many rays are needed
         self.settings.particles = 2 * int(max_length)
+
+    def keff_search(
+        self,
+        func: ModelModifier,
+        x0: float,
+        x1: float,
+        target: float = 1.0,
+        k_tol: float = 1e-4,
+        sigma_final: float = 3e-4,
+        p: float = 0.5,
+        q: float = 0.95,
+        memory: int = 4,
+        x_min: float | None = None,
+        x_max: float | None = None,
+        b0: int | None = None,
+        b_min: int = 20,
+        b_max: int | None = None,
+        maxiter: int = 50,
+        output: bool = False,
+        func_kwargs: dict[str, Any] | None = None,
+        run_kwargs: dict[str, Any] | None = None,
+    ) -> SearchResult:
+        r"""Perform a keff search on a model parametrized by a single variable.
+
+        This method uses the GRsecant method described in a paper by `Price and
+        Roskoff <https://doi.org/10.1016/j.pnucene.2023.104731>`_. The GRsecant
+        method is a modification of the secant method that accounts for
+        uncertainties in the function evaluations. The method uses a weighted
+        linear fit of the most recent function evaluations to predict the next
+        point to evaluate. It also adaptively changes the number of batches to
+        meet the target uncertainty value at each iteration.
+
+        The target uncertainty for iteration :math:`n+1` is determined by the
+        following equation (following Eq. (8) in the paper):
+
+        .. math::
+            \sigma_{i+1} = q \sigma_\text{final} \left ( \frac{ \min \left \{
+            \left\lvert k_i - k_\text{target} \right\rvert : k=0,1,\dots,n
+            \right \} }{k_\text{tol}} \right )^p
+
+        where :math:`q` is a multiplicative factor less than 1, given as the
+        ``sigma_factor`` parameter below.
+
+        Parameters
+        ----------
+        func : ModelModifier
+            Function that takes the parameter to be searched and makes a
+            modification to the model.
+        x0 : float
+            First guess for the parameter passed to `func`
+        x1 : float
+            Second guess for the parameter passed to `func`
+        target : float, optional
+            keff value to search for
+        k_tol : float, optional
+            Stopping criterion on the function value; the absolute value must be
+            within ``k_tol`` of zero to be accepted.
+        sigma_final : float, optional
+            Maximum accepted k-effective uncertainty for the stopping criterion.
+        p : float, optional
+            Exponent used in the stopping criterion.
+        q : float, optional
+            Multiplicative factor used in the stopping criterion.
+        memory : int, optional
+            Number of most-recent points used in the weighted linear fit of
+            ``f(x) = a + b x`` to predict the next point.
+        x_min : float, optional
+            Minimum allowed value for the parameter ``x``.
+        x_max : float, optional
+            Maximum allowed value for the parameter ``x``.
+        b0 : int, optional
+            Number of active batches to use for the initial function
+            evaluations. If None, uses the model's current setting.
+        b_min : int, optional
+            Minimum number of active batches to use in a function evaluation.
+        b_max : int, optional
+            Maximum number of active batches to use in a function evaluation.
+        maxiter : int, optional
+            Maximum number of iterations to perform.
+        output : bool, optional
+            Whether or not to display output showing iteration progress.
+        func_kwargs : dict, optional
+            Keyword-based arguments to pass to the `func` function.
+        run_kwargs : dict, optional
+            Keyword arguments to pass to :meth:`openmc.Model.run` or
+            :meth:`openmc.lib.run`.
+
+        Returns
+        -------
+        SearchResult
+            Result object containing the estimated root (parameter value) and
+            evaluation history (parameters, means, standard deviations, and
+            batches), plus convergence status and termination reason.
+
+        """
+        import openmc.lib
+
+        check_type('model modifier', func, Callable)
+        check_type('target', target, Real)
+        if memory < 2:
+            raise ValueError("memory must be ≥ 2")
+        func_kwargs = {} if func_kwargs is None else dict(func_kwargs)
+        run_kwargs = {} if run_kwargs is None else dict(run_kwargs)
+        run_kwargs.setdefault('output', False)
+
+        # Create lists to store the history of evaluations
+        xs: list[float] = []
+        fs: list[float] = []
+        ss: list[float] = []
+        gs: list[int] = []
+        count = 0
+
+        # Helper function to evaluate f and store results
+        def eval_at(x: float, batches: int) -> tuple[float, float]:
+            # Modify the model with the current guess
+            func(x, **func_kwargs)
+
+            # Change the number of batches and run the model
+            batches += self.settings.inactive
+            if openmc.lib.is_initialized:
+                openmc.lib.settings.set_batches(batches)
+                openmc.lib.reset()
+                openmc.lib.run(**run_kwargs)
+                sp_filepath = f'statepoint.{batches}.h5'
+            else:
+                self.settings.batches = batches
+                sp_filepath = self.run(**run_kwargs)
+
+            # Extract keff and its uncertainty
+            with openmc.StatePoint(sp_filepath) as sp:
+                keff = sp.keff
+
+            if output:
+                nonlocal count
+                count += 1
+                print(f'Iteration {count}: {batches=}, {x=:.6g}, {keff=:.5f}')
+
+            xs.append(float(x))
+            fs.append(float(keff.n - target))
+            ss.append(float(keff.s))
+            gs.append(int(batches))
+            return fs[-1], ss[-1]
+
+        # Default b0 to current model settings if not explicitly provided
+        if b0 is None:
+            b0 = self.settings.batches - self.settings.inactive
+
+        # Perform the search (inlined GRsecant) in a temporary directory
+        with TemporaryDirectory() as tmpdir:
+            if not openmc.lib.is_initialized:
+                run_kwargs.setdefault('cwd', tmpdir)
+
+            # ---- Seed with two evaluations
+            f0, s0 = eval_at(x0, b0)
+            if abs(f0) <= k_tol and s0 <= sigma_final:
+                return SearchResult(x0, xs, fs, ss, gs, True, "converged")
+            f1, s1 = eval_at(x1, b0)
+            if abs(f1) <= k_tol and s1 <= sigma_final:
+                return SearchResult(x1, xs, fs, ss, gs, True, "converged")
+
+            for _ in range(maxiter - 2):
+                # ------ Step 1: propose next x via GRsecant
+                m = min(memory, len(xs))
+
+                # Perform a curve fit on f(x) = a + bx accounting for
+                # uncertainties. This is equivalent to minimizing the function
+                # in Equation (A.14)
+                (a, b), _ = curve_fit(
+                    lambda x, a, b: a + b*x,
+                    xs[-m:], fs[-m:], sigma=ss[-m:], absolute_sigma=True
+                )
+                x_new = float(-a / b)
+
+                # Clamp x_new to the bounds if provided
+                if x_min is not None:
+                    x_new = max(x_new, x_min)
+                if x_max is not None:
+                    x_new = min(x_new, x_max)
+
+                # ------ Step 2: choose target σ for next run (Eq. 8 + clamp)
+
+                min_abs_f = float(np.min(np.abs(fs)))
+                base = q * sigma_final
+                ratio = min_abs_f / k_tol if k_tol > 0 else 1.0
+                sig = base * (ratio ** p)
+                sig_target = max(sig, base)
+
+                # ------ Step 3: choose generations to hit σ_target (Appendix C)
+
+                # Use at least two past points for regression
+                if len(gs) >= 2 and np.var(np.log(gs)) > 0.0:
+                    # Perform a curve fit based on Eq. (C.3) to solve for ln(k).
+                    # Note that unlike in the paper, we do not leave r as an
+                    # undetermined parameter and choose r=0.5.
+                    (ln_k,), _ = curve_fit(
+                        lambda ln_b, ln_k: ln_k - 0.5*ln_b,
+                        np.log(gs[-4:]), np.log(ss[-4:]),
+                    )
+                    k = float(np.exp(ln_k))
+                else:
+                    k = float(ss[-1] * math.sqrt(gs[-1]))
+
+                b_new = (k / sig_target) ** 2
+
+                # Clamp and round up to integer
+                b_new = max(b_min, math.ceil(b_new))
+                if b_max is not None:
+                    b_new = min(b_new, b_max)
+
+                # Evaluate at proposed x with batches determined above
+                f_new, s_new = eval_at(x_new, b_new)
+
+                # Termination based on both criteria (|f| and σ)
+                if abs(f_new) <= k_tol and s_new <= sigma_final:
+                    return SearchResult(x_new, xs, fs, ss, gs, True, "converged")
+
+            return SearchResult(xs[-1], xs, fs, ss, gs, False, "maxiter")
+
+
+@dataclass
+class SearchResult:
+    """Result of a GRsecant keff search.
+
+    Attributes
+    ----------
+    root : float
+        Estimated parameter value where f(x) = 0 at termination.
+    parameters : list[float]
+        Parameter values (x) evaluated during the search, in order.
+    keffs : list[float]
+        Estimated keff values for each evaluation.
+    stdevs : list[float]
+        One-sigma uncertainties of keff for each evaluation.
+    batches : list[int]
+        Number of active batches used for each evaluation.
+    converged : bool
+        Whether both |f| <= k_tol and sigma <= sigma_final were met.
+    flag : str
+        Reason for termination (e.g., "converged", "maxiter").
+    """
+    root: float
+    parameters: list[float] = field(repr=False)
+    means: list[float] = field(repr=False)
+    stdevs: list[float] = field(repr=False)
+    batches: list[int] = field(repr=False)
+    converged: bool
+    flag: str
+
+    @property
+    def function_calls(self) -> int:
+        """Number of function evaluations performed."""
+        return len(self.parameters)
+
+    @property
+    def total_batches(self) -> int:
+        """Total number of active batches used across all evaluations."""
+        return sum(self.batches)
+
+
